@@ -327,13 +327,11 @@ class Session:
 
     def option_presets(self, darwin, options=None):
         options = self.options if options is None else options
+        # an empty answer takes the prompt's own recommended default
         presets = {"Please enter the macOS version": str(darwin)}
-        if options.get("audio") in ("1", "2"):
-            presets["Select audio kext for your system"] = options["audio"]
-        if options.get("broadcom") in ("1", "2"):
-            presets["Select Broadcom Wi-Fi option"] = options["broadcom"]
-        if options.get("whatevergreen") in ("yes", "no"):
-            presets["Disable WhateverGreen for the first boot"] = options["whatevergreen"]
+        presets["Select audio kext for your system"] = options.get("audio") if options.get("audio") in ("1", "2") else ""
+        presets["Select Broadcom Wi-Fi option"] = options.get("broadcom") if options.get("broadcom") in ("1", "2") else ""
+        presets["Disable WhateverGreen for the first boot"] = options.get("whatevergreen") if options.get("whatevergreen") in ("yes", "no") else ""
         return presets
 
     def configure(self, darwin, options=None):

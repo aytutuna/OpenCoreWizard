@@ -336,15 +336,15 @@ class OptionsPage(Page):
 
     GROUPS = (
         ("audio", "Audio on macOS 26 (AppleHDA was removed)", (
-            ("", "Ask when the build needs it"),
+            ("", "Use the recommended choice"),
             ("1", "AppleALC + OCLP root patch"),
             ("2", "AppleALC + SimpleHDA (no audio root patch)"))),
         ("broadcom", "Broadcom Wi-Fi on macOS 14 and newer", (
-            ("", "Ask when the build needs it"),
+            ("", "Use the recommended choice"),
             ("1", "OCLP root patches (recommended)"),
             ("2", "AppleBCMWLANCompanion (needs VT-d, unstable)"))),
         ("whatevergreen", "WhateverGreen on first boot (AMD GPU, macOS 26)", (
-            ("", "Ask when the build needs it"),
+            ("", "Use the recommended choice"),
             ("yes", "Disable it for the first boot (recommended)"),
             ("no", "Keep it enabled")))
     )

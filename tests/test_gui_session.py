@@ -103,11 +103,12 @@ class SessionPipelineTest(unittest.TestCase):
 
 
 class SessionHelpersTest(unittest.TestCase):
-    def test_option_presets_only_include_chosen_answers(self):
+    def test_option_presets_take_the_default_when_nothing_was_chosen(self):
         session = session_module.Session()
         presets = session.option_presets(24, {"audio": None, "broadcom": "2", "whatevergreen": "no", "debug": False})
         self.assertEqual(presets, {
             "Please enter the macOS version": "24",
+            "Select audio kext for your system": "",
             "Select Broadcom Wi-Fi option": "2",
             "Disable WhateverGreen for the first boot": "no"
         })
@@ -379,10 +380,10 @@ class ExpressTest(unittest.TestCase):
         self.assertIsNone(summary["recovery"])
         self.assertNotIn("macOS recovery", self.ocpe.u.steps)
 
-    def test_express_options_leave_audio_to_the_prompt(self):
+    def test_express_options_take_the_audio_default(self):
         self.assertEqual(session_module.EXPRESS_OPTIONS, {"audio": None, "broadcom": "1", "whatevergreen": "yes", "debug": False})
         presets = session_module.Session().option_presets(25, session_module.EXPRESS_OPTIONS)
-        self.assertNotIn("Select audio kext for your system", presets)
+        self.assertEqual(presets["Select audio kext for your system"], "")
         self.assertEqual(presets["Select Broadcom Wi-Fi option"], "1")
 
     def test_defaults_are_answered_without_a_dialog(self):

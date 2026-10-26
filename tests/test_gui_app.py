@@ -165,7 +165,8 @@ class ExpressPageTest(TkTestCase):
         session = app.session
         session.configuration = lambda: {"macos_name": "macOS Tahoe 26", "macos_version": "25.99.99", "needs_oclp": False, "smbios_model": "iMac20,1",
                                          "debug": False, "kexts": ["Lilu"], "acpi_patches": [], "disabled_devices": []}
-        session.build_result = {"ocvalidate": "passed", "result_dir": "Results", "usb_map": None, "preflight": [], "first_boot": [], "debug_notes": [], "post_install": []}
+        session.build_result = {"ocvalidate": "passed", "result_dir": "Results", "usb_map": None, "usb_map_reason": "No USB map has been saved yet.",
+                                "preflight": [], "first_boot": [], "debug_notes": [], "post_install": []}
         session.kit_result = {"dest_dir": "Results/PostInstall", "checklist": "steps", "tools": {}, "bios": None}
         session.options = {"audio": None, "broadcom": "1", "whatevergreen": "yes", "debug": False}
         session.native_macos_version = ("17.0.0", "25.99.99")
@@ -180,6 +181,33 @@ class ExpressPageTest(TkTestCase):
         self.assertEqual(app.page_by_class(pages_module.OptionsPage).vars["whatevergreen"].get(), "yes")
         self.assertEqual(app.page_by_class(pages_module.MacOSPage).selected(), 25)
         self.assertIn("ocvalidate passed", app.pages[0].express_result.cget("text"))
+        notes = app.page_by_class(pages_module.BuildPage).notes.get("1.0", "end")
+        self.assertIn("No USB map has been saved yet.", notes)
+        self.assertIn("press Save map, then build again", notes)
+
+    def test_build_page_says_whether_the_usb_map_is_used(self):
+        from Scripts.gui import pages as pages_module
+        app = self.make_app(install_hooks=False)
+        session = app.session
+        session.configuration = lambda: {"macos_name": "macOS Sequoia 15", "smbios_model": "iMac20,1", "debug": False}
+
+        class Ocpe:
+            usb_map_reason = None
+            source = None
+
+            def select_usb_map_source(self, hardware_report, announce=True):
+                self.usb_map_reason = None if self.source else "No USB map has been saved yet."
+                return self.source
+
+        session.ocpe = Ocpe()
+        page = app.page_by_class(pages_module.BuildPage)
+        page.on_show()
+        self.assertIn("USB map: none. No USB map has been saved yet.", page.summary.cget("text"))
+        session.ocpe.source = {"kind": "json", "path": "SysReport/USBMap.json"}
+        session.usb_dirty = True
+        page.on_show()
+        self.assertIn("USB map: SysReport/USBMap.json will be used.", page.summary.cget("text"))
+        self.assertIn("Unsaved changes on the USB mapping page", page.summary.cget("text"))
 
     def test_express_failure_still_shows_the_verdict(self):
         from Scripts.gui import pages as pages_module

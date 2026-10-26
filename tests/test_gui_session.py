@@ -511,6 +511,21 @@ class ExpressUsbMapTest(unittest.TestCase):
         self.assertIn("not the ones in the hardware report", report["reason"])
         self.assertFalse(os.path.exists(self.ocpe.usb_mapper.map_path))
 
+    def test_build_result_explains_a_missing_map(self):
+        self.ocpe.usb_map_source = None
+        self.ocpe.usb_map_reason = "No USB map has been saved yet."
+        self.ocpe.debug_build = False
+        self.ocpe.build_summary = None
+        self.ocpe.first_boot_notes = lambda hardware: []
+        self.ocpe.post_install_notes = lambda: []
+        self.session.ensure_ocpe()
+        self.session.customized_hardware = {}
+        result = self.session.collect_results(True)
+        self.assertEqual(result["usb_map_reason"], "No USB map has been saved yet.")
+        self.session.usb_dirty = True
+        result = self.session.collect_results(True)
+        self.assertIn("changes that were not saved", result["usb_map_reason"])
+
     def test_ports_that_cannot_be_listed(self):
         self.ocpe.usb_mapper.enumerate = lambda: None
         self.assertEqual(self.session.express_usb_map(), {"possible": False, "reason": "the USB ports could not be listed."})

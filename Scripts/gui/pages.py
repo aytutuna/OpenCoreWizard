@@ -667,15 +667,17 @@ class BuildPage(Page):
             self.run_button.state(["disabled"])
             return
         self.run_button.state(["!disabled"])
-        usb = "none, UTBDefault.kext is used"
-        override = self.session.ocpe.usb_map_override if self.session.ocpe is not None else None
-        if self.session.usb_map_disabled:
-            usb = "disabled, UTBDefault.kext is used"
-        elif isinstance(override, str) and override:
-            usb = "map {}".format(override)
-        elif os.path.isfile(self.session.paths()["usbmap"]):
-            usb = "saved map {}".format(self.session.paths()["usbmap"])
-        self.set_label(self.summary, "{} with {}, {} build. USB map: {}.".format(config["macos_name"], config["smbios_model"], "DEBUG" if config["debug"] else "RELEASE", usb))
+        ocpe = self.session.ocpe
+        try:
+            source = ocpe.select_usb_map_source(self.session.customized_hardware or self.session.hardware_report, announce=False)
+            usb = "USB map: {} will be used.".format(source["path"]) if source else "USB map: none. {}".format(ocpe.usb_map_reason)
+        except Exception as e:
+            usb = "USB map: {}".format(e)
+        tag = None
+        if self.session.usb_dirty:
+            usb += " Unsaved changes on the USB mapping page are not part of the build."
+            tag = "orange"
+        self.set_label(self.summary, "{} with {}, {} build. {}".format(config["macos_name"], config["smbios_model"], "DEBUG" if config["debug"] else "RELEASE", usb), tag)
 
     def run(self):
         self.set_label(self.result, "")
@@ -704,8 +706,16 @@ class BuildPage(Page):
         text, tag = OCVALIDATE_TEXT.get(result["ocvalidate"], OCVALIDATE_TEXT["unavailable"])
         self.set_label(self.result, "EFI built in {}. {}".format(os.path.join(result["result_dir"], "EFI"), text), tag)
         widgets.set_text(self.notes, "")
+        if result["usb_map"]:
+            name = os.path.basename(os.path.normpath(result["usb_map"]))
+            kext = name if name.lower().endswith(".kext") else usb_mapper.KEXT_NAME
+            usb_lines = ["{} from your USB map is in EFI\\OC\\Kexts, so macOS sees only the ports you selected.".format(kext)]
+        else:
+            usb_lines = [result["usb_map_reason"] or "No USB map was used.",
+                         "Without a map, UTBDefault.kext turns on every port; macOS ignores ports beyond 15 per controller, so some may be dead or sleep may fail. "
+                         "Map the ports on the USB mapping page, press Save map, then build again."]
         sections = [
-            ("USB map", ["{} is in EFI\\OC\\Kexts.".format(result["usb_map"]) if result["usb_map"] else "No USB map: UTBDefault.kext enables every port. Map the ports and build again."]),
+            ("USB map", usb_lines),
             ("Windows preflight", result["preflight"] or ["No warnings."]),
             ("First boot", result["first_boot"]),
             ("DEBUG build", result["debug_notes"]),

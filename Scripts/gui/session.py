@@ -414,10 +414,14 @@ class Session:
         except Exception as e:
             preflight_warnings = ["Preflight could not run: {}".format(e)]
         source = ocpe.usb_map_source
+        reason = ocpe.usb_map_reason
+        if not source and self.usb_dirty:
+            reason = "The USB mapping page has changes that were not saved, so the build used no map. Press Save map there and build again."
         return {
             "ocvalidate": {True: "passed", False: "errors"}.get(is_valid, "unavailable"),
             "result_dir": ocpe.result_dir,
             "usb_map": source["path"] if source else None,
+            "usb_map_reason": reason,
             "bios": self.bios_requirements(),
             "first_boot": ocpe.first_boot_notes(self.customized_hardware),
             "debug_notes": ocpe.debug_build_notes() if ocpe.debug_build else [],

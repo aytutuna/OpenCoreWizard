@@ -50,6 +50,7 @@ class OCPE:
         self.usb_map_override = None
         self.usb_map_auto = True
         self.usb_map_source = None
+        self.usb_map_reason = None
         self.bios_checklist = bios_checklist.BIOSChecklist()
         self.pk = postinstall_kit.PostInstallKit()
         self.build_summary = None
@@ -256,8 +257,10 @@ class OCPE:
             if announce:
                 print(text)
 
+        self.usb_map_reason = None
         override = self.usb_map_override
         if override is False:
+            self.usb_map_reason = "USB mapping was turned off for this build."
             return None
 
         explicit = bool(override)
@@ -284,6 +287,10 @@ class OCPE:
         if data is None:
             if explicit:
                 raise Exception("Could not load the USB map {}.".format(path))
+            if os.path.isfile(path):
+                self.usb_map_reason = "The saved USB map {} could not be read.".format(path)
+            else:
+                self.usb_map_reason = "No USB map has been saved yet."
             return None
 
         errors = usb_mapper.validate_selection(data)
@@ -291,11 +298,13 @@ class OCPE:
             if explicit:
                 raise Exception("The USB map {} is not usable: {}".format(path, " ".join(errors)))
             say("Ignoring the saved USB map {}: {}".format(path, " ".join(errors)))
+            self.usb_map_reason = "The saved USB map {} is not usable: {}".format(path, " ".join(errors))
             return None
 
         matched, unmatched = usb_mapper.report_matches(data, hardware_report)
         if not matched and not explicit:
             say("The saved USB map {} does not match the USB controllers in this hardware report, so UTBDefault is used instead.".format(path))
+            self.usb_map_reason = "The saved USB map {} was made for different USB controllers than the ones in this hardware report, so it was not used.".format(path)
             return None
         for controller in unmatched:
             say("Note: {} from the USB map is not listed in the hardware report.".format(controller.get("name")))
@@ -670,6 +679,8 @@ class OCPE:
             print("    - {} from your USB map is in the {} folder and replaces UTBDefault.kext.".format(map_kext, kexts_folder))
             print("    - After installing macOS, check that every mapped port works. If one does not, map again with option 6 and rebuild.")
         else:
+            if self.usb_map_reason:
+                print("    - {}".format(self.usb_map_reason))
             print("    - Map USB ports with option 6 (USB Port Mapping) before building, then build again.")
             print("    - Until then UTBDefault.kext enables every port, which can go past the 15-port limit per controller.")
         print("    - XhciPortLimit does not work on macOS 11.3 and newer, so do not rely on it to lift the 15-port limit.")

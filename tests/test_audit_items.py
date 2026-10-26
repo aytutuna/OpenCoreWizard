@@ -369,17 +369,17 @@ class BIOSStatePrintTest(unittest.TestCase):
 
     def test_groups(self):
         text = self.printed(self.ocpe.bios_state(self.bios, self.report))
-        self.assertIn("    Change these now:\n    - Secure Boot: should be Off. Windows reports it is on.", text)
+        self.assertIn("    Change these in the BIOS before you boot from the stick:\n    - Secure Boot: should be Off. Windows reports it is on.", text)
         self.assertIn("    - VT-x: should be On. Windows reports it is off in the BIOS.", text)
-        self.assertNotIn("Already right", text)
-        self.assertIn("    Check these by hand (Windows cannot see them):\n    - Fast Boot: should be Off. Windows cannot see this setting.", text)
+        self.assertNotIn("Nothing to do", text)
+        self.assertIn("    Check these yourself in the BIOS (the app could not tell from Windows):\n    - Fast Boot: should be Off. Windows cannot see this setting.", text)
         self.assertIn("    Notes:\n    - Update the BIOS first.", text)
-        self.assertLess(text.index("Change these now"), text.index("Check these by hand"))
+        self.assertLess(text.index("Change these in the BIOS"), text.index("Check these yourself"))
 
     def test_other_pc(self):
         self.report["BIOS"]["Version"] = "F2"
         text = self.printed(self.ocpe.bios_state(self.bios, self.report))
-        self.assertIn("    This hardware report is from another PC, so its BIOS can only be checked on that PC.\n    Disable:\n    - Secure Boot", text)
+        self.assertIn("    This hardware report is from another PC, so the app cannot check that PC's BIOS from here. Run the app on that PC to check it, or go through the list below in its BIOS yourself.\n    Disable:\n    - Secure Boot", text)
         self.assertNotIn("should be", text)
 
     def test_without_readings(self):

@@ -122,7 +122,7 @@ class StateTest(unittest.TestCase):
     def test_vtd_is_handled_by_the_build_on_intel(self):
         status, text = self.item("VT-d", dmar=DMAR_ON, dma_guard=1)
         self.assertEqual(status, "ok")
-        self.assertTrue(text.startswith("The firmware publishes its VT-d table (DMAR) and Windows uses it"))
+        self.assertTrue(text.startswith("The BIOS gives Windows a VT-d table (called DMAR), and Windows uses it"))
         self.assertIn("DisableIoMapper", text)
         self.assertIn("most likely on", self.item("VT-d", dmar=DMAR_ON)[1])
         self.assertIn("most likely on", self.item("VT-d", dmar=DMAR_ON, device_guard=[2, 5])[1])
@@ -139,7 +139,7 @@ class StateTest(unittest.TestCase):
 
     def test_vtd_wanted_on(self):
         status, text = self.item("VT-d", want="on")
-        self.assertEqual((status, text), ("change", "The firmware publishes no VT-d table (DMAR), so VT-d is off."))
+        self.assertEqual((status, text), ("change", "The BIOS gives Windows no VT-d table (DMAR), so VT-d is off."))
         self.assertEqual(self.item("VT-d", want="on", dmar=DMAR_ON)[0], "ok")
         self.assertIn("DisableIoMapperMapping", self.item("VT-d", want="on", dmar=dict(DMAR_ON, rmrr=1))[1])
         self.assertEqual(self.item("VT-d", want="on", dmar=None)[0], "unknown")
@@ -153,9 +153,9 @@ class StateTest(unittest.TestCase):
     def test_amd_iommu(self):
         status, text = self.item("IOMMU", ivrs={"present": True}, hardware_report=AMD)
         self.assertEqual(status, "change")
-        self.assertIn("cannot work around it on AMD", text)
+        self.assertIn("has no workaround for it on AMD", text)
         self.assertNotIn("handles", text)
-        self.assertEqual(self.item("IOMMU", hardware_report=AMD), ("ok", "The firmware publishes no AMD IOMMU table (IVRS), so the IOMMU is off."))
+        self.assertEqual(self.item("IOMMU", hardware_report=AMD), ("ok", "The BIOS gives Windows no AMD IOMMU table (IVRS), so the IOMMU is off."))
         self.assertEqual(self.item("IOMMU", hardware_report=AMD, machine=dict(firmware()["machine"], Hypervisor=True))[0], "unknown")
         self.assertEqual(self.item("IOMMU", hardware_report=AMD, ivrs=None)[0], "unknown")
 
@@ -260,12 +260,12 @@ class StateTest(unittest.TestCase):
     def test_above_4g(self):
         setting = "Above 4G Decoding"
         gpu = bars("PCI\\VEN_10DE&DEV_2F58\\4", [(0x80000000, 0x83FFFFFF, 0x83), (0x6000000000, 0x63FFFFFFFF, 0x87)], display=True, bridge=True)
-        self.assertIn("graphics device", self.item(setting, "on", bars=[gpu])[1])
+        self.assertIn("The graphics card uses memory addresses above 4 GB", self.item(setting, "on", bars=[gpu])[1])
         self.assertEqual(self.item(setting, "on", bars=[bars("PCI\\VEN_1B21&DEV_2142\\1", [(0x4000000000, 0x4000007FFF, 0x83)], bridge=True)])[0], "ok")
         soc = bars("PCI\\VEN_8086&DEV_7F4D\\3", [(0x5FDFFFB000, 0x5FDFFFBFFF, 0x83)])
         self.assertIn("probably on", self.item(setting, "on", bars=[soc])[1])
         window = bars("PCI\\VEN_8086&DEV_AE4D\\3", [(0x6000000000, 0x6401FFFFFF, 0x47)])
-        self.assertEqual(self.item(setting, "on", bars=[window]), ("unknown", "No device sits above the 4 GB line, but that does not prove the setting is off."))
+        self.assertEqual(self.item(setting, "on", bars=[window]), ("unknown", "No device uses memory addresses above 4 GB. That does not prove the setting is off, so check Above 4G Decoding in the BIOS."))
         self.assertEqual(self.item(setting, "on", bars=None)[0], "unknown")
 
     def test_resizable_bar(self):
@@ -306,7 +306,7 @@ class StateTest(unittest.TestCase):
         other_board["Motherboard"]["Name"] = "ASUS PRIME Z490-A"
         self.assertTrue(self.checklist.state(bios, info, other_board)["other_pc"])
         self.assertFalse(self.checklist.state(bios, {"secure_boot": "on", "firmware": firmware(machine=None)}, other_board)["other_pc"])
-        self.assertEqual(bios_checklist.OTHER_PC, "This hardware report is from another PC, so its BIOS can only be checked on that PC.")
+        self.assertEqual(bios_checklist.OTHER_PC, "This hardware report is from another PC, so the app cannot check that PC's BIOS from here. Run the app on that PC to check it, or go through the list below in its BIOS yourself.")
 
     def test_no_state_without_readings(self):
         self.assertIsNone(self.checklist.state({"disable": ["Secure Boot"]}, None, self.report))
@@ -316,21 +316,21 @@ class StateTest(unittest.TestCase):
         info = {"secure_boot": "on", "firmware": firmware(cpu=cpu(), pf_virt=True)}
         state = self.checklist.state({"disable": ["Secure Boot", "Fast Boot"], "enable": ["VT-x"]}, info, self.report)
         self.assertEqual(bios_checklist.state_groups(state), [
-            ("Change these now", ["Secure Boot: should be Off. Windows reports it is on. OpenCore will not start while it is on."]),
-            ("Already right (or handled by this build)", ["VT-x: should be On. Windows reports it is on."]),
-            ("Check these by hand (Windows cannot see them)", ["Fast Boot: should be Off. Windows cannot see this setting."])
+            ("Change these in the BIOS before you boot from the stick", ["Secure Boot: should be Off. Windows reports it is on. OpenCore will not start while it is on."]),
+            ("Nothing to do (already right, not on this PC, or handled by this build)", ["VT-x: should be On. Windows reports it is on."]),
+            ("Check these yourself in the BIOS (the app could not tell from Windows)", ["Fast Boot: should be Off. Windows cannot see this setting. Find Fast Boot in the BIOS and turn it off."])
         ])
         self.assertEqual(bios_checklist.item_line({"setting": "SATA Mode: AHCI", "want": "on", "evidence": "The SATA controller is in AHCI mode."}),
-                         "SATA Mode: AHCI. The SATA controller is in AHCI mode.")
+                         "SATA Mode: should be AHCI. The SATA controller is in AHCI mode.")
 
     def test_readings(self):
         info = {"secure_boot": "on", "firmware": firmware(cpu=cpu(), pf_virt=False, dmar=DMAR_ON)}
         rows = dict(self.checklist.readings(info, self.report))
         self.assertEqual(rows["VT-x (virtualization)"], "Windows reports it is off in the BIOS.")
-        self.assertIn("Intel SGX", rows)
+        self.assertIn("Intel SGX (secure enclaves)", rows)
         amd_rows = dict(self.checklist.readings({"secure_boot": "on", "firmware": firmware(cpu=cpu("AuthenticAMD"))}, AMD))
-        self.assertIn("IOMMU", amd_rows)
-        self.assertNotIn("Intel SGX", amd_rows)
+        self.assertIn("IOMMU (device memory protection)", amd_rows)
+        self.assertNotIn("Intel SGX (secure enclaves)", amd_rows)
         self.assertEqual(self.checklist.readings({"secure_boot": "on"}), [])
 
 

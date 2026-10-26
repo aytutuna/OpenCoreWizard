@@ -337,15 +337,15 @@ class OptionsPage(Page):
     GROUPS = (
         ("audio", "Audio on macOS 26 (AppleHDA was removed)", (
             ("", "Use the recommended choice"),
-            ("1", "AppleALC + OCLP root patch"),
-            ("2", "AppleALC + SimpleHDA (no audio root patch)"))),
+            ("1", "AppleALC + OCLP root patch (sound works after you run OpenCore Legacy Patcher once in macOS)"),
+            ("2", "AppleALC + SimpleHDA (sound works without any extra patching in macOS)"))),
         ("broadcom", "Broadcom Wi-Fi on macOS 14 and newer", (
             ("", "Use the recommended choice"),
-            ("1", "OCLP root patches"),
+            ("1", "OCLP root patches (Wi-Fi works after you run OpenCore Legacy Patcher once in macOS)"),
             ("2", "AppleBCMWLANCompanion (needs VT-d, unstable)"))),
         ("whatevergreen", "WhateverGreen on first boot (AMD GPU, macOS 26)", (
             ("", "Use the recommended choice"),
-            ("yes", "Disable it for the first boot (recommended)"),
+            ("yes", "Disable it for the first boot"),
             ("no", "Keep it enabled")))
     )
 
@@ -483,7 +483,7 @@ class UsbMapPage(Page):
         self.refresh_button.grid(row=0, column=1, padx=(0, 6))
         ttk.Button(bar, text="Save map", command=self.save).grid(row=0, column=2, padx=(0, 6))
         self.no_map = tk.BooleanVar(value=False)
-        ttk.Checkbutton(bar, text="Build without a USB map (UTBDefault enables every port)", variable=self.no_map, command=self.toggle_no_map).grid(row=0, column=3, padx=(12, 0))
+        ttk.Checkbutton(bar, text="Build without a USB map (every port turned on; some may not work)", variable=self.no_map, command=self.toggle_no_map).grid(row=0, column=3, padx=(12, 0))
         self.counter = ttk.Label(bar, text="")
         self.counter.grid(row=0, column=4, padx=(12, 0))
         if os.name != "nt":
@@ -675,7 +675,7 @@ class BuildPage(Page):
             usb = "USB map: {}".format(e)
         tag = None
         if self.session.usb_dirty:
-            usb += " Unsaved changes on the USB mapping page are not part of the build."
+            usb += " The USB mapping page has changes that are not saved yet; they will not be in this build. Go back and press Save map first if you want them."
             tag = "orange"
         self.set_label(self.summary, "{} with {}, {} build. {}".format(config["macos_name"], config["smbios_model"], "DEBUG" if config["debug"] else "RELEASE", usb), tag)
 
@@ -709,11 +709,13 @@ class BuildPage(Page):
         if result["usb_map"]:
             name = os.path.basename(os.path.normpath(result["usb_map"]))
             kext = name if name.lower().endswith(".kext") else usb_mapper.KEXT_NAME
-            usb_lines = ["{} from your USB map is in EFI\\OC\\Kexts, so macOS sees only the ports you selected.".format(kext)]
+            usb_lines = ["Your USB map was used: the port file {} is inside the EFI folder (EFI\\OC\\Kexts), so macOS will see only the ports you selected. "
+                         "After installing, check that each of those ports works.".format(kext)]
         else:
             usb_lines = [result["usb_map_reason"] or "No USB map was used.",
-                         "Without a map, UTBDefault.kext turns on every port; macOS ignores ports beyond 15 per controller, so some may be dead or sleep may fail. "
-                         "Map the ports on the USB mapping page, press Save map, then build again."]
+                         "Without a map, the build falls back to a catch-all file (UTBDefault.kext) that turns on every USB port. "
+                         "macOS accepts at most 15 ports per USB chip, so with every port on some may stay dead and sleep may fail. "
+                         "To fix this, pick the ports on the USB mapping page, press Save map, then build again."]
         sections = [
             ("USB map", usb_lines),
             ("Windows preflight", result["preflight"] or ["No warnings."]),

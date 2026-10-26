@@ -613,7 +613,8 @@ class BuildIntegrationTest(unittest.TestCase):
     def test_no_saved_map(self):
         source, _ = self.quiet(self.ocpe.prepare_usb_map, self.report, "24.0.0")
         self.assertIsNone(source)
-        self.assertEqual(self.ocpe.usb_map_reason, "No USB map has been saved yet.")
+        self.assertTrue(self.ocpe.usb_map_reason.startswith("No USB map has been saved yet."))
+        self.assertIn("press Save map", self.ocpe.usb_map_reason)
 
     def test_mapping_turned_off(self):
         with open(os.path.join(FIXTURES, "desktop", "USBMap.json"), encoding="utf-8") as map_file:
@@ -621,7 +622,8 @@ class BuildIntegrationTest(unittest.TestCase):
         self.ocpe.usb_map_override = False
         source, _ = self.quiet(self.ocpe.prepare_usb_map, self.report, "24.0.0")
         self.assertIsNone(source)
-        self.assertEqual(self.ocpe.usb_map_reason, "USB mapping was turned off for this build.")
+        self.assertTrue(self.ocpe.usb_map_reason.startswith("USB mapping was turned off for this build."))
+        self.assertIn("untick \"Build without a USB map\"", self.ocpe.usb_map_reason)
 
     def test_saved_map_is_built_into_kexts(self):
         with open(os.path.join(FIXTURES, "desktop", "USBMap.json"), encoding="utf-8") as map_file:
@@ -644,7 +646,7 @@ class BuildIntegrationTest(unittest.TestCase):
         source, output = self.quiet(self.ocpe.prepare_usb_map, laptop, "24.0.0")
         self.assertIsNone(source)
         self.assertIn("does not match", output)
-        self.assertIn("made for different USB controllers", self.ocpe.usb_map_reason)
+        self.assertIn("belongs to a different PC", self.ocpe.usb_map_reason)
 
     def test_explicit_kext_is_copied(self):
         with open(os.path.join(FIXTURES, "desktop", "USBMap.json"), encoding="utf-8") as map_file:

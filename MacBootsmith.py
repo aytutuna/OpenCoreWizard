@@ -260,7 +260,7 @@ class OCPE:
         self.usb_map_reason = None
         override = self.usb_map_override
         if override is False:
-            self.usb_map_reason = "USB mapping was turned off for this build."
+            self.usb_map_reason = "USB mapping was turned off for this build. To use a map, untick \"Build without a USB map\" on the USB mapping page (or set \"usb_map\" in the answers file), then build again."
             return None
 
         explicit = bool(override)
@@ -288,9 +288,9 @@ class OCPE:
             if explicit:
                 raise Exception("Could not load the USB map {}.".format(path))
             if os.path.isfile(path):
-                self.usb_map_reason = "The saved USB map {} could not be read.".format(path)
+                self.usb_map_reason = "The saved USB map {} is damaged and could not be read. Map the ports again on the USB mapping page (menu option 6 in the terminal), save, then build again.".format(path)
             else:
-                self.usb_map_reason = "No USB map has been saved yet."
+                self.usb_map_reason = "No USB map has been saved yet. Mapping the ports is not enough on its own: on the USB mapping page you also have to press Save map (in the terminal, finish menu option 6 with S). Then build again."
             return None
 
         errors = usb_mapper.validate_selection(data)
@@ -298,13 +298,13 @@ class OCPE:
             if explicit:
                 raise Exception("The USB map {} is not usable: {}".format(path, " ".join(errors)))
             say("Ignoring the saved USB map {}: {}".format(path, " ".join(errors)))
-            self.usb_map_reason = "The saved USB map {} is not usable: {}".format(path, " ".join(errors))
+            self.usb_map_reason = "The saved USB map {} is not usable ({}). Map the ports again on the USB mapping page (menu option 6 in the terminal), save, then build again.".format(path, " ".join(errors))
             return None
 
         matched, unmatched = usb_mapper.report_matches(data, hardware_report)
         if not matched and not explicit:
             say("The saved USB map {} does not match the USB controllers in this hardware report, so UTBDefault is used instead.".format(path))
-            self.usb_map_reason = "The saved USB map {} was made for different USB controllers than the ones in this hardware report, so it was not used.".format(path)
+            self.usb_map_reason = "The saved USB map {} belongs to a different PC: the USB chips listed in it do not match the ones found in this scan, so it was not used. Map the ports again on this PC, save, then build again.".format(path)
             return None
         for controller in unmatched:
             say("Note: {} from the USB map is not listed in the hardware report.".format(controller.get("name")))
@@ -652,10 +652,10 @@ class OCPE:
 
     def post_install_notes(self):
         return [
-            "The macOS installer only puts macOS on the internal disk. The PC still needs the EFI folder on the USB stick to start macOS, so keep booting from the stick for now.",
-            "Once macOS runs, copy the EFI folder from the stick to the hidden EFI partition of the internal disk. POST-INSTALL.md in the post-install kit shows the steps with the MountEFI tool.",
-            "Then open config.plist on the internal disk and change Misc -> Boot -> LauncherOption from Disabled to Full. That puts OpenCore in the BIOS boot menu so the PC starts without the stick. If the BIOS is made by Insyde (common on laptops), use Short instead.",
-            "LauncherOption is Disabled in this build on purpose: a test boot from the stick must not change the BIOS boot order."
+            "The macOS installer only copies macOS to the internal disk. The part that starts macOS (OpenCore, the EFI folder this app built) is still only on the USB stick. So for now leave the stick plugged in and pick it in the BIOS boot menu every time you start the PC.",
+            "Once macOS runs from the stick, move the EFI folder onto the internal disk. Every disk has a small hidden start-up area called the EFI partition; the stick has one and the internal disk has one. Open the post-install kit (the PostInstall folder on the stick, made on the Post-install page or with menu option 9 in the terminal). Copy the EFI folder from the stick to the Desktop as a backup (a stick made by this app shows up as OPENCORE), then run the MountEFI tool to open the internal disk's hidden area and copy the EFI folder onto it. POST-INSTALL.md in the kit has the steps in order.",
+            "Then, in the copy you just made on the internal disk, open the settings file EFI/OC/config.plist with the ProperTree tool from the kit. Find the setting Misc -> Boot -> LauncherOption. It is set to Disabled; change it to Full and save. On the next start OpenCore adds itself to the BIOS boot menu, so the PC starts macOS without the stick. If the BIOS screen shows the name Insyde (common on laptops), use Short instead of Full.",
+            "Why LauncherOption is Disabled in this build: while you test from the stick, OpenCore must not change the BIOS boot order of this PC. You turn it on only after the copy to the internal disk works."
         ]
 
     def before_using_efi(self, org_hardware_report, hardware_report):

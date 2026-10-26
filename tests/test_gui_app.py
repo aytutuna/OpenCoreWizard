@@ -207,7 +207,7 @@ class ExpressPageTest(TkTestCase):
         session.usb_dirty = True
         page.on_show()
         self.assertIn("USB map: SysReport/USBMap.json will be used.", page.summary.cget("text"))
-        self.assertIn("Unsaved changes on the USB mapping page", page.summary.cget("text"))
+        self.assertIn("press Save map first", page.summary.cget("text"))
 
     def test_express_failure_still_shows_the_verdict(self):
         from Scripts.gui import pages as pages_module

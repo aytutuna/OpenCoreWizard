@@ -101,6 +101,14 @@ class SessionPipelineTest(unittest.TestCase):
         with self.assertRaises(session_module.StageError):
             self.session.configure(25)
 
+    def test_declined_root_patches_name_the_cause(self):
+        self.session.load_report(os.path.join(FIXTURES, "desktop", "Report.json"))
+        self.script.answers = dict(self.answers, **{"Continue with OpenCore Legacy Patcher": "no"})
+        with self.assertRaises(session_module.StageError) as raised:
+            self.session.configure(25, {"audio": "1", "broadcom": "1", "whatevergreen": "yes", "debug": False})
+        self.assertIn("The AppleALC + OCLP audio choice needs root patches on macOS Tahoe 26", str(raised.exception))
+        self.assertFalse(self.session.configured)
+
 
 class SessionHelpersTest(unittest.TestCase):
     def test_option_presets_take_the_default_when_nothing_was_chosen(self):

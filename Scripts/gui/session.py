@@ -353,7 +353,7 @@ class Session:
             needs_oclp = ocpe.k.select_required_kexts(customized_hardware, macos_version, needs_oclp, ocpe.ac.patches)
             ocpe.s.smbios_specific_options(customized_hardware, smbios_model, macos_version, ocpe.ac.patches, ocpe.k)
             if needs_oclp and not ocpe.show_oclp_warning(macos_version):
-                raise StageError("{} needs OpenCore Legacy Patcher on this hardware and it was declined. Pick an older macOS version.".format(macos_name(macos_version)))
+                raise StageError(ocpe.oclp_declined_message(customized_hardware, macos_version))
         ocpe.debug_build = bool(options.get("debug"))
 
         self.macos_version = macos_version

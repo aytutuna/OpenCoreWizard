@@ -144,6 +144,24 @@ class OCPE:
             else:
                 return path, data
             
+    def oclp_declined_message(self, hardware_report, macos_version):
+        name = os_data.get_macos_name_by_darwin(macos_version)
+        parts = ["{} needs OpenCore Legacy Patcher on this hardware and it was declined.".format(name)]
+        devices = self.k.oclp_devices(hardware_report, macos_version)
+        if devices:
+            names = [device for device, _ in devices]
+            listed = names[0] if len(names) == 1 else "{} and {}".format(", ".join(names[:-1]), names[-1])
+            native = [limit for _, limit in devices if limit]
+            if native:
+                newest = os_data.get_macos_name_by_darwin(min(native, key=self.u.parse_darwin_version))
+                parts.append("{} {} no driver past {}.".format(listed, "has" if len(names) == 1 else "have", newest))
+                parts.append("Pick {} or older, or answer yes to the root patches.".format(newest))
+            else:
+                parts.append("{} only {} with root patches.".format(listed, "works" if len(names) == 1 else "work"))
+        for option, instead in self.k.oclp_options:
+            parts.append("{} needs root patches on {}; pick {} instead.".format(option, name, instead))
+        return " ".join(parts)
+
     def show_oclp_warning(self, macos_version):
         is_tahoe = self.u.parse_darwin_version(macos_version) >= self.u.parse_darwin_version("25.0.0")
 
@@ -870,7 +888,7 @@ class OCPE:
 
         if needs_oclp and not self.show_oclp_warning(macos_version):
             print("")
-            print("{} needs OpenCore Legacy Patcher on this hardware and it was declined.".format(os_data.get_macos_name_by_darwin(macos_version)))
+            print(self.oclp_declined_message(customized_hardware, macos_version))
             return self.print_headless_summary(3, smbios_model)
 
         print("")

@@ -18,6 +18,7 @@ except NameError:
 class KextMaestro:
     def __init__(self):
         self.utils = utils.Utils()
+        self.oclp_options = []
         self.matching_keys = [
             "IOPCIMatch", 
             "IONameMatch", 
@@ -184,6 +185,22 @@ class KextMaestro:
                     return True
         return False
 
+    def oclp_devices(self, hardware_report, macos_version):
+        companion = self.kexts[kext_data.kext_index_by_name["AppleBCMWLANCompanion"]].checked
+        found = []
+        for device_type, devices in hardware_report.items():
+            if not isinstance(devices, dict):
+                continue
+            for device_name, device_props in devices.items():
+                if not isinstance(device_props, dict) or not device_props.get("OCLP Compatibility"):
+                    continue
+                if companion and device_props.get("Device ID") in pci_data.BroadcomWiFiIDs:
+                    continue
+                oclp_compatibility = device_props["OCLP Compatibility"]
+                if self.utils.parse_darwin_version(oclp_compatibility[0]) >= self.utils.parse_darwin_version(macos_version) >= self.utils.parse_darwin_version(oclp_compatibility[-1]):
+                    found.append((device_name, (device_props.get("Compatibility") or (None, None))[0]))
+        return found
+
     def has_discrete_amd_gpu(self, hardware_report):
         return any(gpu_props.get("Device Type") == "Discrete GPU" and "AMD" in gpu_props.get("Manufacturer", "") for gpu_props in hardware_report.get("GPU", {}).values())
 
@@ -226,6 +243,7 @@ class KextMaestro:
         for kext in self.kexts:
             kext.checked = kext.required
         self.usb_map_replaced_default = False
+        self.oclp_options = []
         kext_needs_oclp = False
         companion_networks = []
 
@@ -257,6 +275,7 @@ class KextMaestro:
                     kext_option = self.utils.request_input("Select audio kext for your system (default: {}): ".format(recommended_option)).strip() or str(recommended_option)
                     if kext_option == "1":
                         needs_oclp = kext_needs_oclp = True
+                        self.oclp_options.append(("The AppleALC + OCLP audio choice", "AppleALC + SimpleHDA"))
                         selected_kexts.append("AppleALC")
                         break
                     elif kext_option == "2":
@@ -396,6 +415,7 @@ class KextMaestro:
                 selected_kexts.append(selected_name)
                 if selected_name == "AirportItlwm" and darwin_major >= 24:
                     needs_oclp = kext_needs_oclp = True
+                    self.oclp_options.append(("The AirportItlwm Wi-Fi choice", "itlwm"))
                     selected_kexts.append("IOSkywalkFamily")
                     if darwin_major >= 25:
                         selected_kexts.append("AirPortBrcmNIC-Tahoe")

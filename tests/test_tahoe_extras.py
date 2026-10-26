@@ -354,5 +354,49 @@ class WhateverGreenFirstBootConfigTest(unittest.TestCase):
         self.assertIn("agdpmod=pikera", config["NVRAM"]["Add"]["7C436110-AB2A-4BBB-A880-FE41995C9F82"]["boot-args"])
 
 
+class OclpDeclinedMessageTest(unittest.TestCase):
+    def setUp(self):
+        spec = importlib.util.spec_from_file_location("opcore_simplify_main", os.path.join(REPO_ROOT, "MacBootsmith.py"))
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        self.ocpe = module.OCPE.__new__(module.OCPE)
+        self.ocpe.u = utils.Utils()
+
+    def tearDown(self):
+        reset_kexts()
+
+    def message(self, report, macos_version, prompts):
+        self.ocpe.k, _, _ = select_kexts(report, macos_version, True, prompts)
+        return self.ocpe.oclp_declined_message(report, macos_version)
+
+    def test_names_the_device_and_the_newest_native_version(self):
+        report = load_desktop_report()
+        gpu = report["GPU"]["Intel UHD Graphics 630"]
+        gpu["Compatibility"] = ("22.99.99", "17.0.0")
+        gpu["OCLP Compatibility"] = ("25.99.99", "23.0.0")
+        text = self.message(report, "25.0.0", {})
+        self.assertIn("macOS Tahoe 26 needs OpenCore Legacy Patcher", text)
+        self.assertIn("Intel UHD Graphics 630 has no driver past macOS Ventura 13.", text)
+        self.assertIn("Pick macOS Ventura 13 or older, or answer yes to the root patches.", text)
+
+    def test_companion_card_is_not_blamed(self):
+        report = with_broadcom(load_desktop_report())
+        report["GPU"]["Intel UHD Graphics 630"]["OCLP Compatibility"] = ("25.99.99", "23.0.0")
+        text = self.message(report, "25.0.0", {COMPANION_PROMPT: "2"})
+        self.assertNotIn(BROADCOM_NAME, text)
+        self.assertIn("Intel UHD Graphics 630", text)
+
+    def test_broadcom_card_lists_its_native_limit(self):
+        report = with_broadcom(load_desktop_report())
+        report["Network"][BROADCOM_NAME]["Compatibility"] = ("22.99.99", "17.0.0")
+        text = self.message(report, "25.0.0", {COMPANION_PROMPT: "1"})
+        self.assertIn("{} has no driver past macOS Ventura 13.".format(BROADCOM_NAME), text)
+
+    def test_option_choice_points_at_the_other_option(self):
+        text = self.message(load_desktop_report(), "25.0.0", {"Select audio kext": "1"})
+        self.assertNotIn("no driver past", text)
+        self.assertIn("The AppleALC + OCLP audio choice needs root patches on macOS Tahoe 26; pick AppleALC + SimpleHDA instead.", text)
+
+
 if __name__ == "__main__":
     unittest.main()

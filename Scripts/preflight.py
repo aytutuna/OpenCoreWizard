@@ -1,3 +1,4 @@
+from Scripts import firmware_probe
 from Scripts import run
 from Scripts import utils
 import json
@@ -34,6 +35,7 @@ class Preflight:
         system_root = os.environ.get("SystemRoot", r"C:\Windows")
         self.powershell_exe = os.path.join(system_root, "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
         self.ps_prefix = "[Console]::OutputEncoding=[Text.Encoding]::UTF8; "
+        self.info = None
 
     def _powershell(self, command):
         args = [self.powershell_exe, "-NoProfile", "-NonInteractive", "-Command", self.ps_prefix + command]
@@ -65,7 +67,14 @@ class Preflight:
         parts.append("try { $d = Get-Disk -ErrorAction Stop | Where-Object IsSystem | Select-Object -First 1; if ($d) { $r.Disk = [ordered]@{Number=$d.Number; PartitionStyle=[string]$d.PartitionStyle} } else { $r.DiskError = 'no system disk found' } } catch { $r.DiskError = $_.Exception.Message }")
         parts.append("try { $r.Esp = @(Get-Partition -ErrorAction Stop | Where-Object GptType -eq '" + self.esp_guid + "' | ForEach-Object { [ordered]@{DiskNumber=$_.DiskNumber; Size=[int64]$_.Size} }) } catch { $r.EspError = $_.Exception.Message }")
         parts.append("try { $r.SecureBoot = [int](Get-ItemProperty -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\SecureBoot\\State' -ErrorAction Stop).UEFISecureBootEnabled } catch { $r.SecureBootError = $_.Exception.Message }")
-        parts.append("$r | ConvertTo-Json -Compress -Depth 4")
+        parts.append("try { $cs = Get-CimInstance Win32_ComputerSystem -ErrorAction Stop; $b = Get-CimInstance Win32_BIOS -ErrorAction Stop | Select-Object -First 1; $bb = Get-CimInstance Win32_BaseBoard -ErrorAction Stop | Select-Object -First 1; "
+                     "$r.Machine = [ordered]@{Manufacturer=[string]$cs.Manufacturer; Model=[string]$cs.Model; Hypervisor=$cs.HypervisorPresent; BoardManufacturer=[string]$bb.Manufacturer; BoardProduct=[string]$bb.Product; BiosManufacturer=[string]$b.Manufacturer; BiosVersion=[string]$b.SMBIOSBIOSVersion} } catch { $r.MachineError = $_.Exception.Message }")
+        parts.append("try { $c = Get-CimInstance Win32_Processor -ErrorAction Stop | Select-Object -First 1; $r.Virtualization = [ordered]@{Capable=$c.VMMonitorModeExtensions; Enabled=$c.VirtualizationFirmwareEnabled} } catch { }")
+        parts.append("try { $r.DeviceGuard = @((Get-CimInstance -Namespace root/Microsoft/Windows/DeviceGuard -ClassName Win32_DeviceGuard -ErrorAction Stop).AvailableSecurityProperties | ForEach-Object { [int]$_ }) } catch { }")
+        parts.append("try { $r.Devices = @(Get-CimInstance Win32_PnPEntity -ErrorAction Stop | Where-Object { $_.PNPDeviceID -like 'PCI\\*' -or ($_.HardwareID -match 'PNP040[01]|PNP050[01]') -or ($_.CompatibleID -match 'MSFT0101|PNP0C31') } | "
+                     "ForEach-Object { [ordered]@{Id=[string]$_.PNPDeviceID; Name=[string]$_.Name; Hardware=@($_.HardwareID); Compatible=@($_.CompatibleID); Error=$_.ConfigManagerErrorCode} }) } catch { $r.DevicesError = $_.Exception.Message }")
+        parts.append("try { $r.DiskBus = @(Get-CimInstance -Namespace root/Microsoft/Windows/Storage -ClassName MSFT_PhysicalDisk -ErrorAction Stop | ForEach-Object { [int]$_.CimInstanceProperties['BusType'].Value }) } catch { }")
+        parts.append("$r | ConvertTo-Json -Compress -Depth 5")
         return " ".join(parts)
 
     def bitlocker_state(self, bitlocker):
@@ -108,7 +117,44 @@ class Preflight:
             on_system = [partition for partition in partitions if partition.get("DiskNumber") == system_number]
             chosen = (on_system or partitions)[0]
             info["esp_mb"] = int(chosen.get("Size")) // (1024 * 1024)
+        info["firmware"] = self.parse_firmware(data)
         return info
+
+    def as_list(self, value):
+        if value is None:
+            return []
+        if isinstance(value, dict) and "value" in value:
+            value = value["value"]
+        return value if isinstance(value, list) else [value]
+
+    def parse_firmware(self, data):
+        def flag(value):
+            return value if isinstance(value, bool) else None
+
+        def strings(value):
+            return [str(item).upper() for item in self.as_list(value) if isinstance(item, str) and item]
+
+        machine = data.get("Machine") if isinstance(data.get("Machine"), dict) else None
+        if machine:
+            machine = dict(machine, Hypervisor=flag(machine.get("Hypervisor")))
+        virtualization = data.get("Virtualization") if isinstance(data.get("Virtualization"), dict) else {}
+        devices = None
+        if "Devices" in data:
+            devices = [{
+                "id": str(device.get("Id") or "").upper(),
+                "name": str(device.get("Name") or ""),
+                "hardware": strings(device.get("Hardware")),
+                "compatible": strings(device.get("Compatible")),
+                "error": device.get("Error") if isinstance(device.get("Error"), int) else None
+            } for device in self.as_list(data["Devices"]) if isinstance(device, dict)]
+        return {
+            "machine": machine,
+            "vmx_capable": flag(virtualization.get("Capable")),
+            "virt_enabled": flag(virtualization.get("Enabled")),
+            "device_guard": [item for item in self.as_list(data.get("DeviceGuard")) if isinstance(item, int)] if "DeviceGuard" in data else None,
+            "devices": devices,
+            "disk_bus": [item for item in self.as_list(data.get("DiskBus")) if isinstance(item, int)] if "DiskBus" in data else None
+        }
 
     def collect(self):
         if not self.windows:
@@ -119,7 +165,9 @@ class Preflight:
         data = json.loads(output[0])
         if not isinstance(data, dict):
             raise Exception("unexpected PowerShell output")
-        return self.parse(data)
+        info = self.parse(data)
+        info["firmware"].update(firmware_probe.collect())
+        return info
 
     def warnings(self, info, org_hardware_report=None, hardware_report=None):
         warnings = []
@@ -143,8 +191,9 @@ class Preflight:
         return warnings
 
     def run(self, org_hardware_report=None, hardware_report=None):
-        info = self.collect()
-        return info, self.warnings(info, org_hardware_report, hardware_report)
+        self.info = None
+        self.info = self.collect()
+        return self.info, self.warnings(self.info, org_hardware_report, hardware_report)
 
     def show(self, org_hardware_report=None, hardware_report=None, indent="    "):
         try:

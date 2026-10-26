@@ -398,6 +398,35 @@ class PreflightParseTest(unittest.TestCase):
         self.assertEqual(info["partition_style"], "MBR")
         self.assertIsNone(info["esp_mb"])
 
+    def test_firmware_readings(self):
+        firmware = self.pf.parse({
+            "Machine": {"Manufacturer": "LENOVO", "Model": "83F5", "Hypervisor": False, "BoardProduct": "LNVNB161216", "BiosVersion": "Q7CN78WW"},
+            "Virtualization": {"Capable": True, "Enabled": False},
+            "DeviceGuard": [2, 3, 5],
+            "Devices": [
+                {"Id": "PCI\\VEN_1C5C&DEV_1959\\4", "Name": "Standard NVM Express Controller", "Hardware": ["PCI\\VEN_1C5C&DEV_1959"], "Compatible": ["PCI\\VEN_1C5C&CC_010802", "PCI\\CC_010802"], "Error": 0},
+                {"Id": "acpi\\intc7001\\0", "Name": "Trusted Platform Module 2.0", "Hardware": "ACPI\\INTC7001", "Compatible": None, "Error": None}
+            ],
+            "DiskBus": 17
+        })["firmware"]
+        self.assertEqual(firmware["machine"]["BiosVersion"], "Q7CN78WW")
+        self.assertFalse(firmware["machine"]["Hypervisor"])
+        self.assertEqual((firmware["vmx_capable"], firmware["virt_enabled"]), (True, False))
+        self.assertEqual(firmware["device_guard"], [2, 3, 5])
+        self.assertEqual(firmware["disk_bus"], [17])
+        self.assertEqual(firmware["devices"][0]["compatible"], ["PCI\\VEN_1C5C&CC_010802", "PCI\\CC_010802"])
+        self.assertEqual(firmware["devices"][1], {"id": "ACPI\\INTC7001\\0", "name": "Trusted Platform Module 2.0", "hardware": ["ACPI\\INTC7001"], "compatible": [], "error": None})
+
+    def test_firmware_readings_missing(self):
+        firmware = self.pf.parse({"MachineError": "denied"})["firmware"]
+        self.assertEqual(set(firmware.values()), {None})
+
+    def test_single_device_and_wrapped_arrays(self):
+        firmware = self.pf.parse({"Devices": {"Id": "PCI\\VEN_8086&DEV_A352\\3", "Hardware": [], "Compatible": [], "Error": 0},
+                                  "DeviceGuard": {"value": [3], "Count": 1}})["firmware"]
+        self.assertEqual(len(firmware["devices"]), 1)
+        self.assertEqual(firmware["device_guard"], [3])
+
 
 class PreflightWarningTest(unittest.TestCase):
     def setUp(self):
@@ -463,6 +492,9 @@ class PreflightRunTest(unittest.TestCase):
         self.pf = preflight.Preflight()
         self.pf.windows = True
         self.commands = []
+        probe = mock.patch.object(preflight.firmware_probe, "collect", return_value={"dmar": {"present": False}, "cpu": None})
+        probe.start()
+        self.addCleanup(probe.stop)
 
     def runner(self, result):
         def run(command):
@@ -482,6 +514,29 @@ class PreflightRunTest(unittest.TestCase):
         self.assertNotIn("Get-BitLockerVolume", script)
         self.assertNotIn("Win32_EncryptableVolume", script)
         self.assertIn("System.Volume.BitLockerProtection", script)
+
+    def test_script_reads_firmware_facts_without_admin(self):
+        script = self.pf.script(False)
+        for part in ("Win32_ComputerSystem", "HypervisorPresent", "SMBIOSBIOSVersion", "Win32_BaseBoard", "VirtualizationFirmwareEnabled",
+                     "root/Microsoft/Windows/DeviceGuard", "Win32_PnPEntity", "-like 'PCI\\*'", "PNP050[01]", "MSFT0101",
+                     "MSFT_PhysicalDisk", "CimInstanceProperties['BusType'].Value", "-Depth 5"):
+            self.assertIn(part, script)
+
+    def test_collect_adds_the_probe_readings(self):
+        self.pf.is_admin = lambda: False
+        self.pf._powershell = self.runner(fake_output({"Virtualization": {"Capable": True, "Enabled": False}}))
+        info, _ = self.pf.run()
+        self.assertIs(self.pf.info, info)
+        self.assertEqual(info["firmware"]["dmar"], {"present": False})
+        self.assertFalse(info["firmware"]["virt_enabled"])
+
+    def test_failed_run_clears_the_last_reading(self):
+        self.pf.info = {"secure_boot": "on"}
+        self.pf._powershell = self.runner(("", "boom", 1))
+        self.pf.is_admin = lambda: False
+        with self.assertRaises(Exception):
+            self.pf.run()
+        self.assertIsNone(self.pf.info)
 
     def test_powershell_conventions(self):
         captured = {}

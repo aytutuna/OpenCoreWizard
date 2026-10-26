@@ -647,7 +647,7 @@ class UsbMapPage(Page):
         self.session.set_usb_map_disabled(bool(self.no_map.get()))
 
 
-BIOS_FOOTER = "The app cannot read every BIOS setting from Windows. Look at the 'check yourself' items in the BIOS before you boot. If a setting in 'Change these' is still wrong, OpenCore may not start. The Post-install page and POST-INSTALL.md in the kit explain each setting."
+BIOS_FOOTER = "The app cannot read every BIOS setting from Windows, so look at the 'check yourself' items in the BIOS too. If a setting you were asked to change is still wrong, OpenCore may not start. The Post-install page and POST-INSTALL.md in the kit explain each setting."
 BIOS_LABELS = {"change": "Change in the BIOS", "ok": "Nothing to do", "unknown": "Check yourself in the BIOS"}
 BIOS_TAGS = {"change": "red", "ok": "green", "unknown": None}
 
@@ -658,7 +658,8 @@ def bios_lines(bios, state=None):
     lines = []
     if state and not state["other_pc"]:
         for status, label in BIOS_LABELS.items():
-            names = ["{} (should be {})".format(*bios_checklist.split_setting(item["setting"], item["want"])) for item in state["items"] if item["status"] == status]
+            names = [bios_checklist.split_setting(item["setting"], item["want"]) for item in state["items"] if item["status"] == status]
+            names = [name if status == "ok" else "{} (should be {})".format(name, value) for name, value in names]
             if names:
                 lines.append("{}: {}.".format(label, ", ".join(names)))
     else:
@@ -1028,7 +1029,7 @@ class PostInstallPage(Page):
             for setting in bios.get(key) or ["(none)"]:
                 item = statuses.get(setting)
                 if item:
-                    widgets.append_lines(text, ["{} - {} should be {}. {}".format(BIOS_LABELS[item["status"]], *bios_checklist.split_setting(setting, item["want"]), item["evidence"])], BIOS_TAGS[item["status"]], "- ")
+                    widgets.append_lines(text, ["{} - {}".format(BIOS_LABELS[item["status"]], bios_checklist.item_line(item))], BIOS_TAGS[item["status"]], "- ")
                 else:
                     widgets.append_lines(text, [setting], None, "- ")
 

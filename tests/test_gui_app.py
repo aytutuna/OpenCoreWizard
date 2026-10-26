@@ -180,7 +180,7 @@ class ExpressPageTest(TkTestCase):
             app.pages[0].express_done(summary)
         self.assertIsInstance(app.pages[app.index], pages_module.UsbWriterPage)
         self.assertIn("SMBIOS: iMac20,1", info.call_args[0][1])
-        self.assertIn("BIOS settings before you boot from the stick:\n  - Change in the BIOS: Secure Boot (should be Off).\n  - Nothing to do: VT-d (should be Off).\n  - Check yourself in the BIOS: Fast Boot (should be Off).\n\nNext:", info.call_args[0][1])
+        self.assertIn("BIOS settings before you boot from the stick:\n  - Change in the BIOS: Secure Boot (should be Off).\n  - Nothing to do: VT-d.\n  - Check yourself in the BIOS: Fast Boot (should be Off).\n\nNext:", info.call_args[0][1])
         self.assertEqual(app.page_by_class(pages_module.OptionsPage).vars["whatevergreen"].get(), "yes")
         self.assertEqual(app.page_by_class(pages_module.MacOSPage).selected(), 25)
         self.assertIn("ocvalidate passed", app.pages[0].express_result.cget("text"))
@@ -209,10 +209,10 @@ class ExpressPageTest(TkTestCase):
                     "  Change these in the BIOS before you boot from the stick:\n"
                     "    - Secure Boot: should be Off. Windows reports it is on. OpenCore will not start while it is on.\n"
                     "  Nothing to do (already right, not on this PC, or handled by this build):\n"
-                    "    - VT-d: should be Off. The firmware publishes no VT-d table (DMAR), so VT-d is off.\n"
+                    "    - VT-d: The firmware publishes no VT-d table (DMAR), so VT-d is off.\n"
                     "  Check these yourself in the BIOS (the app could not tell from Windows):\n"
                     "    - Fast Boot: should be Off. Windows cannot see this setting.\n"
-                    "  - The app cannot read every BIOS setting from Windows. Look at the 'check yourself' items in the BIOS before you boot. If a setting in 'Change these' is still wrong, OpenCore may not start. The Post-install page and POST-INSTALL.md in the kit explain each setting.")
+                    "  - The app cannot read every BIOS setting from Windows, so look at the 'check yourself' items in the BIOS too. If a setting you were asked to change is still wrong, OpenCore may not start. The Post-install page and POST-INSTALL.md in the kit explain each setting.")
         self.assertIn(expected, notes)
         self.assertNotIn("Turn off:", notes)
         self.assertLess(notes.index("Fast Boot"), notes.index("No USB map"))
@@ -225,7 +225,7 @@ class ExpressPageTest(TkTestCase):
     def test_bios_lines_for_the_express_message(self):
         from Scripts.gui import pages as pages_module
         bios = {"disable": ["Secure Boot", "VT-d", "Fast Boot"], "enable": [], "notes": []}
-        self.assertEqual(pages_module.bios_lines(bios, self.BIOS_STATE)[:-1], ["Change in the BIOS: Secure Boot (should be Off).", "Nothing to do: VT-d (should be Off).", "Check yourself in the BIOS: Fast Boot (should be Off)."])
+        self.assertEqual(pages_module.bios_lines(bios, self.BIOS_STATE)[:-1], ["Change in the BIOS: Secure Boot (should be Off).", "Nothing to do: VT-d.", "Check yourself in the BIOS: Fast Boot (should be Off)."])
         self.assertEqual(pages_module.bios_lines(bios)[0], "Turn off: Secure Boot, VT-d, Fast Boot.")
 
     def test_post_install_page_marks_each_setting(self):
@@ -234,9 +234,9 @@ class ExpressPageTest(TkTestCase):
         page = app.page_by_class(pages_module.PostInstallPage)
         page.show_bios({"disable": ["Secure Boot", "VT-d", "Fast Boot"], "enable": [], "notes": ["n"]}, self.BIOS_STATE)
         text = page.bios["disable"].get("1.0", "end")
-        self.assertIn("- Change in the BIOS - Secure Boot should be Off. Windows reports it is on.", text)
-        self.assertIn("- Nothing to do - VT-d should be Off. The firmware publishes no VT-d table", text)
-        self.assertIn("- Check yourself in the BIOS - Fast Boot should be Off. Windows cannot see this setting.", text)
+        self.assertIn("- Change in the BIOS - Secure Boot: should be Off. Windows reports it is on.", text)
+        self.assertIn("- Nothing to do - VT-d: The firmware publishes no VT-d table", text)
+        self.assertIn("- Check yourself in the BIOS - Fast Boot: should be Off. Windows cannot see this setting.", text)
         self.assertIn("red", page.bios["disable"].tag_names("1.0"))
         self.assertEqual(page.bios["enable"].get("1.0", "end").strip(), "- (none)")
         page.show_bios({"disable": ["Secure Boot"], "enable": [], "notes": ["n"]}, {"other_pc": True, "items": []})

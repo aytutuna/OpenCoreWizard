@@ -317,7 +317,7 @@ class StateTest(unittest.TestCase):
         state = self.checklist.state({"disable": ["Secure Boot", "Fast Boot"], "enable": ["VT-x"]}, info, self.report)
         self.assertEqual(bios_checklist.state_groups(state), [
             ("Change these in the BIOS before you boot from the stick", ["Secure Boot: should be Off. Windows reports it is on. OpenCore will not start while it is on."]),
-            ("Nothing to do (already right, not on this PC, or handled by this build)", ["VT-x: should be On. Windows reports it is on."]),
+            ("Nothing to do (already right, not on this PC, or handled by this build)", ["VT-x: Windows reports it is on."]),
             ("Check these yourself in the BIOS (the app could not tell from Windows)", ["Fast Boot: should be Off. Windows cannot see this setting. Find Fast Boot in the BIOS and turn it off."])
         ])
         self.assertEqual(bios_checklist.item_line({"setting": "SATA Mode: AHCI", "want": "on", "evidence": "The SATA controller is in AHCI mode."}),

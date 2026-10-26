@@ -479,6 +479,9 @@ def split_setting(setting, want):
 
 def item_line(item):
     name, value = split_setting(item["setting"], item["want"])
+    # the guide's target would contradict evidence like "on, and this build handles it"
+    if item.get("status") == "ok":
+        return "{}: {}".format(name, item["evidence"])
     return "{}: should be {}. {}".format(name, value, item["evidence"])
 
 

@@ -190,11 +190,6 @@ class CompanionConfigTest(unittest.TestCase):
     def test_disable_io_mapper_on_without_companion(self):
         self.assertTrue(self.prodigy.disable_io_mapper(boot_args_report(), fresh_kexts()))
 
-    def test_disable_io_mapper_off_with_aquantia(self):
-        report = boot_args_report()
-        report["Network"] = {"AQC107": {"Device ID": "1D6A-07B1"}}
-        self.assertFalse(self.prodigy.disable_io_mapper(report, fresh_kexts()))
-
     def test_disable_io_mapper_off_on_amd(self):
         self.assertFalse(self.prodigy.disable_io_mapper(boot_args_report("AMD"), fresh_kexts()))
 

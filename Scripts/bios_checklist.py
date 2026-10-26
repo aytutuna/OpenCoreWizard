@@ -1,6 +1,5 @@
 from Scripts.datasets import bios_settings
 from Scripts.datasets import cpu_data
-from Scripts.datasets import pci_data
 import re
 
 FOUR_GB = 0x100000000
@@ -159,7 +158,6 @@ class BIOSChecklist:
             "vendor": "AMD" if "AMD" in vendor else "Intel" if "Intel" in vendor else None,
             "codename": cpu.get("Codename", ""),
             "processor": cpu.get("Processor Name", ""),
-            "aquantia": any(device.get("Device ID") in pci_data.AquantiaAqtionIDs for device in hardware_report.get("Network", {}).values()),
             "secure_boot": info.get("secure_boot")
         }
 
@@ -437,8 +435,6 @@ class BIOSChecklist:
             want = "off"
         status = "unknown" if seen is None else "ok" if seen in (want, "none") else "change"
 
-        if rule == "vtd" and want == "off" and context["aquantia"]:
-            return "change", text + " Your Aquantia network card needs VT-d on, so this build leaves DisableIoMapper off. Turn VT-d on in the BIOS."
         if rule == "vtd" and want == "off" and context["vendor"] == "Intel":
             return "ok", text + " This build tells macOS to ignore VT-d (the DisableIoMapper setting), so you can leave it as it is."
         if rule == "vtd" and want == "on" and seen == "on" and firmware["dmar"]["rmrr"]:

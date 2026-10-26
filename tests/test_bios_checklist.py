@@ -130,13 +130,12 @@ class StateTest(unittest.TestCase):
         self.assertEqual(self.item("VT-d")[0], "ok")
         self.assertIn("broken VT-d table", self.item("VT-d", dmar={"present": True, "drhd": 1, "units": 0, "rmrr": 0})[1])
 
-    def test_vtd_with_aquantia_is_not_called_handled(self):
+    def test_vtd_with_aquantia_is_handled_like_any_intel_build(self):
+        # the Aquantia kernel patches the build adds are made for running without AppleVTD
         aquantia = report("Comet Lake-S", BIOS={"Version": "F1"}, Network={"AQC107": {"Device ID": "1D6A-07B1"}})
         status, text = self.item("VT-d", dmar=DMAR_ON, hardware_report=aquantia)
-        self.assertEqual(status, "change")
-        self.assertIn("Aquantia", text)
-        self.assertNotIn("you can leave it", text)
-        self.assertEqual(self.item("VT-d", want="on", dmar=DMAR_ON, dma_guard=1, hardware_report=aquantia)[0], "ok")
+        self.assertEqual(status, "ok")
+        self.assertIn("DisableIoMapper", text)
 
     def test_vtd_wanted_on(self):
         status, text = self.item("VT-d", want="on")

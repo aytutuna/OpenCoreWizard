@@ -622,6 +622,9 @@ class ConfigProdigy:
     def disable_io_mapper(self, hardware_report, kexts):
         if "AMD" in hardware_report.get("CPU").get("Manufacturer"):
             return False
+        # ForceAquantiaEthernet needs AppleVTD running, see the quirk's note in Configuration.pdf
+        if any(network_props.get("Device ID") in pci_data.AquantiaAqtionIDs for network_props in hardware_report.get("Network", {}).values()):
+            return False
         return not kexts[kext_data.kext_index_by_name.get("AppleBCMWLANCompanion")].checked
 
     def agdp_pikera_patch(self):

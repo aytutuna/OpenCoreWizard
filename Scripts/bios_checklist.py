@@ -412,7 +412,7 @@ class BIOSChecklist:
         status = "unknown" if seen is None else "ok" if seen in (want, "none") else "change"
 
         if rule == "vtd" and want == "off" and context["aquantia"]:
-            return "unknown", text + " Your Aquantia network card needs VT-d on and the DisableIoMapper setting off. This build turns DisableIoMapper on, so the card may not work in macOS. If you need the card in macOS, leave VT-d on and set Kernel -> Quirks -> DisableIoMapper to false in config.plist."
+            return "change", text + " Your Aquantia network card needs VT-d on, so this build leaves DisableIoMapper off. Turn VT-d on in the BIOS."
         if rule == "vtd" and want == "off" and context["vendor"] == "Intel":
             return "ok", text + " This build tells macOS to ignore VT-d (the DisableIoMapper setting), so you can leave it as it is."
         if rule == "vtd" and want == "on" and seen == "on" and firmware["dmar"]["rmrr"]:

@@ -1,6 +1,7 @@
 from Scripts.datasets import os_data
 from Scripts.datasets import chipset_data
 from Scripts.datasets import explanations
+from Scripts.datasets import pci_data
 from Scripts.gui import session
 from Scripts.sniffer import hardware_sniffer
 from Scripts import acpi_guru
@@ -612,6 +613,9 @@ class OCPE:
             notes = []
             disable.append("Resizable BAR/Smart Access Memory")
 
+        if any(network_props.get("Device ID") in pci_data.AquantiaAqtionIDs for network_props in hardware_report.get("Network", {}).values()):
+            overrides = dict(overrides or {})
+            overrides.setdefault("VT-d", ("enable", "VT-d must stay enabled for the Aquantia network card; Kernel -> Quirks -> DisableIoMapper is off in this build."))
         checklist = self.bios_checklist.build(hardware_report, overrides)
         keywords = ("Secure Boot", "Above 4G", "CSM")
         handled = [word for word in keywords if any(word in item for item in disable + enable)]

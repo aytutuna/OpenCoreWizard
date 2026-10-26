@@ -133,9 +133,10 @@ class StateTest(unittest.TestCase):
     def test_vtd_with_aquantia_is_not_called_handled(self):
         aquantia = report("Comet Lake-S", BIOS={"Version": "F1"}, Network={"AQC107": {"Device ID": "1D6A-07B1"}})
         status, text = self.item("VT-d", dmar=DMAR_ON, hardware_report=aquantia)
-        self.assertEqual(status, "unknown")
+        self.assertEqual(status, "change")
         self.assertIn("Aquantia", text)
         self.assertNotIn("you can leave it", text)
+        self.assertEqual(self.item("VT-d", want="on", dmar=DMAR_ON, dma_guard=1, hardware_report=aquantia)[0], "ok")
 
     def test_vtd_wanted_on(self):
         status, text = self.item("VT-d", want="on")

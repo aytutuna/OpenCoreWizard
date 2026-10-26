@@ -20,7 +20,12 @@ from Scripts.datasets import kext_data
 from Scripts.datasets import vendor_quirks
 
 SAMPLE_CONFIG = os.path.join(REPO_ROOT, "OCK_Files", "OpenCorePkg", "EFI", "OC", "config.plist")
-POST_INSTALL_LINE = "After installing, copy the EFI folder to the internal disk's EFI partition. Then set Misc -> Boot -> LauncherOption to Full (Short on Insyde firmware) so OpenCore registers its own firmware boot entry; this build leaves it Disabled so that testing the USB does not change the firmware boot order."
+POST_INSTALL_NOTES = [
+    "The macOS installer only puts macOS on the internal disk. The PC still needs the EFI folder on the USB stick to start macOS, so keep booting from the stick for now.",
+    "Once macOS runs, copy the EFI folder from the stick to the hidden EFI partition of the internal disk. POST-INSTALL.md in the post-install kit shows the steps with the MountEFI tool.",
+    "Then open config.plist on the internal disk and change Misc -> Boot -> LauncherOption from Disabled to Full. That puts OpenCore in the BIOS boot menu so the PC starts without the stick. If the BIOS is made by Insyde (common on laptops), use Short instead.",
+    "LauncherOption is Disabled in this build on purpose: a test boot from the stick must not change the BIOS boot order."
+]
 
 
 def load_main_module():
@@ -341,7 +346,7 @@ class BIOSNotesTest(unittest.TestCase):
         self.assertEqual(config_prodigy.cfg_lock_note, "CFG Lock: in the boot picker press Space to show hidden entries and run ControlMsrE2. If it reports UNLOCKED, the AppleXcpmCfgLock/AppleCpuPmCfgLock quirks can be turned off later; if LOCKED, leave them on.")
 
     def test_post_install_line(self):
-        self.assertEqual(self.ocpe.post_install_notes(), [POST_INSTALL_LINE])
+        self.assertEqual(self.ocpe.post_install_notes(), POST_INSTALL_NOTES)
 
 
 def fake_output(payload, code=0, error=""):

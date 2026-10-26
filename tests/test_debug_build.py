@@ -201,7 +201,7 @@ class DebugBuildFlowTest(unittest.TestCase):
         notes = " ".join(self.ocpe.debug_build_notes())
         self.assertIn("opencore-YYYY-MM-DD-hhmmss.txt", notes)
         self.assertIn("root of the EFI partition", notes)
-        self.assertIn("Option 11 (Analyze Boot Log)", notes)
+        self.assertIn("The boot log analyzer (menu option 11, or the Finish page in the window)", notes)
 
     def test_debug_answers_fixture(self):
         import json

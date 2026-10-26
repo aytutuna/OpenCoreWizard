@@ -367,7 +367,7 @@ class OCPE:
             "This EFI uses the DEBUG OpenCore build with logging on (Misc -> Debug: AppleDebug, ApplePanic, Target 67). Booting takes a few seconds longer.",
             "Every boot writes opencore-YYYY-MM-DD-hhmmss.txt to the root of the EFI partition it booted from (the USB drive when you boot from it), next to the EFI folder.",
             "To collect it, boot until it fails, then plug the USB drive into this PC (or mount the internal EFI partition) and keep the newest opencore-*.txt.",
-            "Option 11 (Analyze Boot Log) reads the newest log from a drive letter, folder or file and names the stage where the boot stopped.",
+            "The boot log analyzer (menu option 11, or the Finish page in the window) reads the newest log from a drive letter, folder or file and names the stage where the boot stopped.",
             "Once macOS boots, build again and answer No to the DEBUG question to get the faster RELEASE EFI."
         ]
 
@@ -651,7 +651,12 @@ class OCPE:
         return notes
 
     def post_install_notes(self):
-        return ["After installing, copy the EFI folder to the internal disk's EFI partition. Then set Misc -> Boot -> LauncherOption to Full (Short on Insyde firmware) so OpenCore registers its own firmware boot entry; this build leaves it Disabled so that testing the USB does not change the firmware boot order."]
+        return [
+            "The macOS installer only puts macOS on the internal disk. The PC still needs the EFI folder on the USB stick to start macOS, so keep booting from the stick for now.",
+            "Once macOS runs, copy the EFI folder from the stick to the hidden EFI partition of the internal disk. POST-INSTALL.md in the post-install kit shows the steps with the MountEFI tool.",
+            "Then open config.plist on the internal disk and change Misc -> Boot -> LauncherOption from Disabled to Full. That puts OpenCore in the BIOS boot menu so the PC starts without the stick. If the BIOS is made by Insyde (common on laptops), use Short instead.",
+            "LauncherOption is Disabled in this build on purpose: a test boot from the stick must not change the BIOS boot order."
+        ]
 
     def before_using_efi(self, org_hardware_report, hardware_report):
         self.u.head("Before Using EFI")

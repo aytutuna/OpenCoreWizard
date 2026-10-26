@@ -6,6 +6,7 @@ from tkinter import filedialog
 from tkinter import messagebox
 from tkinter import ttk
 
+from Scripts import bios_checklist
 from Scripts import usb_mapper
 from Scripts.datasets.explanations import decisions, install_steps
 from Scripts.gui import widgets
@@ -95,7 +96,7 @@ class WelcomePage(Page):
         ttk.Label(header, text="Windows preflight (this PC)", font=widgets.bold_font(self)).grid(row=0, column=0, sticky="w")
         self.check_button = ttk.Button(header, text="Run checks", command=self.run_checks)
         self.check_button.grid(row=0, column=1, sticky="e")
-        frame, self.checks = widgets.tree(self.body, ("check", "result"), ("Check", "Result"), {"check": 340, "result": 420}, height=4)
+        frame, self.checks = widgets.tree(self.body, ("check", "result"), ("Check", "Result"), {"check": 240, "result": 520}, height=8)
         frame.grid(row=5, column=0, sticky="nsew")
         ttk.Label(self.body, text="Warnings", font=widgets.bold_font(self)).grid(row=6, column=0, sticky="w", pady=(10, 2))
         frame, self.warnings = widgets.scrolled_text(self.body, height=5)
@@ -162,7 +163,7 @@ class WelcomePage(Page):
         app.page_by_class(PostInstallPage).show_kit(session.kit_result)
         lines = summary_lines(summary)
         if summary.get("bios"):
-            lines += ["BIOS settings before you boot from the stick:"] + ["  - {}".format(line) for line in bios_lines(summary["bios"])[:2]]
+            lines += ["BIOS settings before you boot from the stick:"] + ["  - {}".format(line) for line in bios_lines(summary["bios"], summary.get("bios_state"))[:-1]]
         self.set_label(self.express_result, "Last run: {}, {}, ocvalidate {}.".format(summary["macos_name"], summary["smbios"], summary["ocvalidate"]), "green")
         messagebox.showinfo("Build everything", "\n".join(lines + ["", "Next: write the USB drive on the USB page."]), parent=self)
         app.show_page(app.pages.index(app.page_by_class(UsbWriterPage)))
@@ -176,6 +177,8 @@ class WelcomePage(Page):
                                  ("Secure Boot", info.get("secure_boot") or "unknown"),
                                  ("System disk partition style", info.get("partition_style") or "unknown"),
                                  ("Windows EFI partition", "{} MB".format(esp) if esp is not None else "not found")):
+                self.checks.insert("", "end", values=(check, value))
+            for check, value in bios_checklist.BIOSChecklist().readings(info, self.session.hardware_report):
                 self.checks.insert("", "end", values=(check, value))
         elif result.get("error"):
             self.checks.insert("", "end", values=("Preflight", "could not run: {}".format(result["error"])), tags=("orange",))
@@ -644,16 +647,37 @@ class UsbMapPage(Page):
         self.session.set_usb_map_disabled(bool(self.no_map.get()))
 
 
-def bios_lines(bios):
+BIOS_FOOTER = "OpenCore does not start until these are set. The Post-install page and POST-INSTALL.md in the kit explain each one."
+BIOS_LABELS = {"change": "Change now", "ok": "Already right", "unknown": "Check by hand"}
+BIOS_TAGS = {"change": "red", "ok": "green", "unknown": None}
+
+
+def bios_lines(bios, state=None):
     if not bios:
         return []
     lines = []
-    if bios.get("disable"):
-        lines.append("Turn off: {}.".format(", ".join(bios["disable"])))
-    if bios.get("enable"):
-        lines.append("Turn on: {}.".format(", ".join(bios["enable"])))
-    lines.append("OpenCore does not start until these are set. The Post-install page and POST-INSTALL.md in the kit explain each one.")
+    if state and not state["other_pc"]:
+        for status, label in BIOS_LABELS.items():
+            names = [item["setting"] for item in state["items"] if item["status"] == status]
+            if names:
+                lines.append("{}: {}.".format(label, ", ".join(names)))
+    else:
+        if state:
+            lines.append(bios_checklist.OTHER_PC)
+        if bios.get("disable"):
+            lines.append("Turn off: {}.".format(", ".join(bios["disable"])))
+        if bios.get("enable"):
+            lines.append("Turn on: {}.".format(", ".join(bios["enable"])))
+    lines.append(BIOS_FOOTER)
     return lines
+
+
+def bios_groups(bios, state=None):
+    if not bios:
+        return []
+    if state and not state["other_pc"]:
+        return bios_checklist.state_groups(state) + [(None, [BIOS_FOOTER])]
+    return [(None, bios_lines(bios, state))]
 
 
 class BuildPage(Page):
@@ -731,8 +755,14 @@ class BuildPage(Page):
                          "Without a map, the build falls back to a catch-all file (UTBDefault.kext) that turns on every USB port. "
                          "macOS accepts at most 15 ports per USB chip, so with every port on some may stay dead and sleep may fail. "
                          "To fix this, pick the ports on the USB mapping page, press Save map, then build again."]
+        groups = bios_groups(result.get("bios"), result.get("bios_state"))
+        if groups:
+            widgets.append_lines(self.notes, ["BIOS settings before you boot from the stick"], "bold")
+        for title, lines in groups:
+            if title:
+                widgets.append_lines(self.notes, [title + ":"], "bold", "  ")
+            widgets.append_lines(self.notes, lines, None, "    - " if title else "  - ")
         sections = [
-            ("BIOS settings before you boot from the stick", bios_lines(result.get("bios"))),
             ("USB map", usb_lines),
             ("Windows preflight", result["preflight"] or ["No warnings."]),
             ("First boot", result["first_boot"]),
@@ -983,15 +1013,24 @@ class PostInstallPage(Page):
                 self.set_label(self.state_label, "Kit in {}".format(os.path.dirname(path)), "green")
             except OSError:
                 pass
-        self.show_bios(self.session.bios_requirements())
+        bios = self.session.bios_requirements()
+        self.show_bios(bios, self.session.bios_state(bios))
 
-    def show_bios(self, bios):
+    def show_bios(self, bios, state=None):
+        statuses = {item["setting"]: item for item in (state or {}).get("items", [])}
         for key, text in self.bios.items():
             widgets.set_text(text, "")
             if bios is None:
                 widgets.append_lines(text, ["Load a hardware report and configure the build to see this list."], "grey")
                 continue
-            widgets.append_lines(text, bios.get(key) or ["(none)"], None, "- ")
+            if state and state["other_pc"] and key != "notes":
+                widgets.append_lines(text, [bios_checklist.OTHER_PC], "grey")
+            for setting in bios.get(key) or ["(none)"]:
+                item = statuses.get(setting)
+                if item:
+                    widgets.append_lines(text, ["{}: {}. {}".format(BIOS_LABELS[item["status"]], setting, item["evidence"])], BIOS_TAGS[item["status"]], "- ")
+                else:
+                    widgets.append_lines(text, [setting], None, "- ")
 
     def prepare(self, mode):
         self.app.run_stage("Preparing the post-install kit", lambda: self.session.post_install_kit(mode), on_done=self.show_kit, percent=(mode == "full"))
@@ -1004,7 +1043,7 @@ class PostInstallPage(Page):
             text += "; not downloaded: {}".format(", ".join(failed))
         self.set_label(self.state_label, text, "orange" if failed else "green")
         if result.get("bios") is not None:
-            self.show_bios(result["bios"])
+            self.show_bios(result["bios"], result.get("bios_state"))
 
 
 class FinishPage(Page):

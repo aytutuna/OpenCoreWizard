@@ -671,11 +671,7 @@ class OCPE:
         
         bios_requirements = self.check_bios_requirements(org_hardware_report, hardware_report, self.k.bios_overrides())
         print("* BIOS/UEFI Settings Required:")
-        for title, field in (("Disable", "disable"), ("Enable", "enable"), ("Notes", "notes")):
-            if bios_requirements[field]:
-                print("    {}:".format(title))
-                for item in bios_requirements[field]:
-                    print("    - {}".format(item))
+        self.print_bios_sections(self.bios_sections(bios_requirements, self.bios_state(bios_requirements, org_hardware_report)), "    ")
         print("")
         
         kexts_folder = "EFI\\OC\\Kexts" if os.name == "nt" else "EFI/OC/Kexts"
@@ -742,12 +738,37 @@ class OCPE:
         print("Headless build result: exit={} folder={} smbios={} ocvalidate={}".format(exit_code, self.result_dir, smbios_model or "none", validation_status))
         return exit_code
 
-    def print_bios_requirements(self, bios_requirements):
+    def bios_state(self, bios_requirements, hardware_report):
+        return self.bios_checklist.state(bios_requirements, self.pf.info, hardware_report)
+
+    def bios_sections(self, bios_requirements, state=None):
+        if state and not state["other_pc"]:
+            sections = bios_checklist.state_groups(state)
+        else:
+            sections = [(None, [bios_checklist.OTHER_PC])] if state else []
+            sections += [(title, bios_requirements[field]) for title, field in (("Disable", "disable"), ("Enable", "enable")) if bios_requirements[field]]
+        if bios_requirements["notes"]:
+            sections.append(("Notes", bios_requirements["notes"]))
+        return sections
+
+    def print_bios_sections(self, sections, indent):
+        for title, items in sections:
+            if not title:
+                print(indent + " ".join(items))
+                continue
+            print("{}{}:".format(indent, title))
+            for item in items:
+                print("{}- {}".format(indent, item))
+
+    def print_bios_requirements(self, bios_requirements, state=None):
         print("")
         print("BIOS/UEFI settings:")
-        for title, field in (("Disable", "disable"), ("Enable", "enable"), ("Notes", "notes")):
-            for item in bios_requirements[field]:
-                print("    {}: {}".format(title, item))
+        if not state:
+            for title, field in (("Disable", "disable"), ("Enable", "enable"), ("Notes", "notes")):
+                for item in bios_requirements[field]:
+                    print("    {}: {}".format(title, item))
+            return
+        self.print_bios_sections(self.bios_sections(bios_requirements, state), "    ")
 
     def apply_headless_usb_map(self, usb_map):
         self.usb_map_auto = isinstance(usb_map, str) and usb_map.strip().lower() == "auto"
@@ -791,7 +812,7 @@ class OCPE:
             self.u.head(session.EXPRESS_TITLE)
             print("")
             self.print_summary_lines(summary)
-            self.print_bios_requirements(summary["bios"])
+            self.print_bios_requirements(summary["bios"], summary.get("bios_state"))
             print("")
             print("Next: 10. Create USB Installer")
         print("")
@@ -820,7 +841,7 @@ class OCPE:
             return self.print_headless_summary(3 if isinstance(error, session.UnsupportedHardware) else 1)
         print("")
         self.print_summary_lines(summary)
-        self.print_bios_requirements(summary["bios"])
+        self.print_bios_requirements(summary["bios"], summary.get("bios_state"))
         return self.print_headless_summary(0 if summary["ocvalidate"] == "passed" else 2, summary["smbios"], summary["ocvalidate"])
 
     def run_headless(self, answers):
@@ -934,7 +955,8 @@ class OCPE:
         print("Windows preflight:")
         self.pf.show(hardware_report, customized_hardware)
 
-        self.print_bios_requirements(self.check_bios_requirements(hardware_report, customized_hardware, self.k.bios_overrides()))
+        bios_requirements = self.check_bios_requirements(hardware_report, customized_hardware, self.k.bios_overrides())
+        self.print_bios_requirements(bios_requirements, self.bios_state(bios_requirements, hardware_report))
 
         first_boot_notes = self.first_boot_notes(customized_hardware)
         if first_boot_notes:

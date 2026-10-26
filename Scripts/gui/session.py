@@ -407,12 +407,18 @@ class Session:
             return None
         return self.ocpe.check_bios_requirements(self.hardware_report, self.customized_hardware, self.ocpe.k.bios_overrides())
 
+    def bios_state(self, bios):
+        if not bios or not self.preflight_info or self.ocpe is None:
+            return None
+        return self.ocpe.bios_checklist.state(bios, self.preflight_info, self.hardware_report)
+
     def collect_results(self, is_valid):
         ocpe = self.ocpe
         try:
-            _, preflight_warnings = ocpe.pf.run(self.hardware_report, self.customized_hardware)
+            self.preflight_info, preflight_warnings = ocpe.pf.run(self.hardware_report, self.customized_hardware)
         except Exception as e:
             preflight_warnings = ["Preflight could not run: {}".format(e)]
+        bios = self.bios_requirements()
         source = ocpe.usb_map_source
         reason = ocpe.usb_map_reason
         if not source and self.usb_dirty:
@@ -422,7 +428,8 @@ class Session:
             "result_dir": ocpe.result_dir,
             "usb_map": source["path"] if source else None,
             "usb_map_reason": reason,
-            "bios": self.bios_requirements(),
+            "bios": bios,
+            "bios_state": self.bios_state(bios),
             "first_boot": ocpe.first_boot_notes(self.customized_hardware),
             "debug_notes": ocpe.debug_build_notes() if ocpe.debug_build else [],
             "post_install": ocpe.post_install_notes(),
@@ -452,7 +459,8 @@ class Session:
         if files and os.path.isfile(files[0]):
             with open(files[0], "r", encoding="utf-8") as handle:
                 checklist = handle.read()
-        self.kit_result = dict(result, checklist=checklist, bios=self.bios_requirements())
+        bios = self.bios_requirements()
+        self.kit_result = dict(result, checklist=checklist, bios=bios, bios_state=self.bios_state(bios))
         return self.kit_result
 
     def express(self, report_path=None, acpi_dir=None, kit_mode="full", recovery=True):
@@ -528,6 +536,7 @@ class Session:
             "usb_map": result["usb_map"],
             "usb": usb_summary(result["usb_map"], usb_report),
             "bios": result["bios"],
+            "bios_state": result.get("bios_state"),
             "decisions": utils.Utils.decision_lines({"codec_layout": ocpe.co.layout_reason}),
             "warnings": list(dict.fromkeys(warnings))
         }

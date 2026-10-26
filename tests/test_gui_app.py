@@ -174,11 +174,13 @@ class ExpressPageTest(TkTestCase):
         session.suggested_macos_version = "24.99.99"
         session.macos_version = "25.99.99"
         summary = {"macos_name": "macOS Tahoe 26", "smbios": "iMac20,1", "ocvalidate": "passed", "result_dir": "Results",
-                   "recovery": None, "kit": "Results/PostInstall", "warnings": [], "bios": None}
+                   "recovery": None, "kit": "Results/PostInstall", "warnings": [], "bios": {"disable": ["Secure Boot", "VT-d", "Fast Boot"], "enable": [], "notes": []},
+                   "bios_state": self.BIOS_STATE}
         with mock.patch.object(pages_module.messagebox, "showinfo") as info:
             app.pages[0].express_done(summary)
         self.assertIsInstance(app.pages[app.index], pages_module.UsbWriterPage)
         self.assertIn("SMBIOS: iMac20,1", info.call_args[0][1])
+        self.assertIn("BIOS settings before you boot from the stick:\n  - Change now: Secure Boot.\n  - Already right: VT-d.\n  - Check by hand: Fast Boot.\n\nNext:", info.call_args[0][1])
         self.assertEqual(app.page_by_class(pages_module.OptionsPage).vars["whatevergreen"].get(), "yes")
         self.assertEqual(app.page_by_class(pages_module.MacOSPage).selected(), 25)
         self.assertIn("ocvalidate passed", app.pages[0].express_result.cget("text"))
@@ -188,6 +190,70 @@ class ExpressPageTest(TkTestCase):
         self.assertIn("BIOS settings before you boot from the stick", notes)
         self.assertIn("Turn off: Secure Boot, CSM.", notes)
         self.assertLess(notes.index("Turn off: Secure Boot"), notes.index("No USB map"))
+
+    BIOS_STATE = {"other_pc": False, "items": [
+        {"setting": "Secure Boot", "want": "off", "status": "change", "evidence": "Windows reports it is on. OpenCore will not start while it is on."},
+        {"setting": "VT-d", "want": "off", "status": "ok", "evidence": "The firmware publishes no VT-d table (DMAR), so VT-d is off."},
+        {"setting": "Fast Boot", "want": "off", "status": "unknown", "evidence": "Windows cannot see this setting."}
+    ]}
+
+    def test_build_page_groups_the_bios_settings(self):
+        from Scripts.gui import pages as pages_module
+        app = self.make_app(install_hooks=False)
+        page = app.page_by_class(pages_module.BuildPage)
+        page.show_result({"ocvalidate": "passed", "result_dir": "Results", "usb_map": None, "usb_map_reason": "No USB map has been saved yet.",
+                          "preflight": [], "first_boot": [], "debug_notes": [], "post_install": [],
+                          "bios": {"disable": ["Secure Boot", "VT-d", "Fast Boot"], "enable": [], "notes": []}, "bios_state": self.BIOS_STATE})
+        notes = page.notes.get("1.0", "end")
+        expected = ("BIOS settings before you boot from the stick\n"
+                    "  Change these now:\n"
+                    "    - Secure Boot: should be Off. Windows reports it is on. OpenCore will not start while it is on.\n"
+                    "  Already right (or handled by this build):\n"
+                    "    - VT-d: should be Off. The firmware publishes no VT-d table (DMAR), so VT-d is off.\n"
+                    "  Check these by hand (Windows cannot see them):\n"
+                    "    - Fast Boot: should be Off. Windows cannot see this setting.\n"
+                    "  - OpenCore does not start until these are set.")
+        self.assertIn(expected, notes)
+        self.assertNotIn("Turn off:", notes)
+        self.assertLess(notes.index("Fast Boot"), notes.index("No USB map"))
+
+        page.show_result({"ocvalidate": "passed", "result_dir": "Results", "usb_map": None, "usb_map_reason": None, "preflight": [], "first_boot": [],
+                          "debug_notes": [], "post_install": [], "bios": {"disable": ["Secure Boot"], "enable": [], "notes": []}, "bios_state": {"other_pc": True, "items": []}})
+        notes = page.notes.get("1.0", "end")
+        self.assertIn("  - This hardware report is from another PC, so its BIOS can only be checked on that PC.\n  - Turn off: Secure Boot.", notes)
+
+    def test_bios_lines_for_the_express_message(self):
+        from Scripts.gui import pages as pages_module
+        bios = {"disable": ["Secure Boot", "VT-d", "Fast Boot"], "enable": [], "notes": []}
+        self.assertEqual(pages_module.bios_lines(bios, self.BIOS_STATE)[:-1], ["Change now: Secure Boot.", "Already right: VT-d.", "Check by hand: Fast Boot."])
+        self.assertEqual(pages_module.bios_lines(bios)[0], "Turn off: Secure Boot, VT-d, Fast Boot.")
+
+    def test_post_install_page_marks_each_setting(self):
+        from Scripts.gui import pages as pages_module
+        app = self.make_app(install_hooks=False)
+        page = app.page_by_class(pages_module.PostInstallPage)
+        page.show_bios({"disable": ["Secure Boot", "VT-d", "Fast Boot"], "enable": [], "notes": ["n"]}, self.BIOS_STATE)
+        text = page.bios["disable"].get("1.0", "end")
+        self.assertIn("- Change now: Secure Boot. Windows reports it is on.", text)
+        self.assertIn("- Already right: VT-d. The firmware publishes no VT-d table", text)
+        self.assertIn("- Check by hand: Fast Boot. Windows cannot see this setting.", text)
+        self.assertIn("red", page.bios["disable"].tag_names("1.0"))
+        self.assertEqual(page.bios["enable"].get("1.0", "end").strip(), "- (none)")
+        page.show_bios({"disable": ["Secure Boot"], "enable": [], "notes": ["n"]}, {"other_pc": True, "items": []})
+        self.assertTrue(page.bios["disable"].get("1.0", "end").startswith("This hardware report is from another PC"))
+        self.assertEqual(page.bios["notes"].get("1.0", "end").strip(), "- n")
+
+    def test_welcome_page_lists_the_firmware_readings(self):
+        app = self.make_app(install_hooks=False)
+        info = {"bitlocker": "off", "secure_boot": "on", "partition_style": "GPT", "esp_mb": 260,
+                "firmware": {"machine": None, "pf_virt": False, "dmar": {"present": False},
+                             "cpu": {"vendor": "GenuineIntel", "hypervisor": False, "vmx": True, "svm": False, "hv_root": None, "smt_width": 1}}}
+        app.pages[0].show_checks({"info": info, "warnings": [], "error": None, "admin": False})
+        rows = {app.pages[0].checks.item(row)["values"][0]: app.pages[0].checks.item(row)["values"][1] for row in app.pages[0].checks.get_children()}
+        self.assertEqual(rows["Secure Boot"], "on")
+        self.assertEqual(rows["VT-x (virtualization)"], "Windows reports it is off in the BIOS.")
+        self.assertEqual(rows["VT-d"], "The firmware publishes no VT-d table (DMAR), so VT-d is off.")
+        self.assertIn("Thunderbolt / USB4", rows)
 
     def test_build_page_says_whether_the_usb_map_is_used(self):
         from Scripts.gui import pages as pages_module

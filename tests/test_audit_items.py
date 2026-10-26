@@ -349,6 +349,45 @@ class BIOSNotesTest(unittest.TestCase):
         self.assertEqual(self.ocpe.post_install_notes(), POST_INSTALL_NOTES)
 
 
+class BIOSStatePrintTest(unittest.TestCase):
+    def setUp(self):
+        module = load_main_module()
+        self.ocpe = module.OCPE.__new__(module.OCPE)
+        self.ocpe.bios_checklist = module.bios_checklist.BIOSChecklist()
+        self.ocpe.pf = preflight.Preflight()
+        self.bios = {"disable": ["Secure Boot", "Fast Boot"], "enable": ["VT-x"], "notes": ["Update the BIOS first."]}
+        self.report = {"Motherboard": {"Name": "TEST BOARD"}, "BIOS": {"Version": "F1"}, "CPU": {"Manufacturer": "Intel", "Codename": "Comet Lake-S"}}
+        self.ocpe.pf.info = {"secure_boot": "on", "firmware": {
+            "machine": {"Model": "Board", "BiosVersion": "F1"}, "pf_virt": False,
+            "cpu": {"vendor": "GenuineIntel", "hypervisor": False, "vmx": True, "svm": False, "hv_root": None, "smt_width": 2}
+        }}
+
+    def printed(self, state):
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            self.ocpe.print_bios_requirements(self.bios, state)
+        return output.getvalue()
+
+    def test_groups(self):
+        text = self.printed(self.ocpe.bios_state(self.bios, self.report))
+        self.assertIn("    Change these now:\n    - Secure Boot: should be Off. Windows reports it is on.", text)
+        self.assertIn("    - VT-x: should be On. Windows reports it is off in the BIOS.", text)
+        self.assertNotIn("Already right", text)
+        self.assertIn("    Check these by hand (Windows cannot see them):\n    - Fast Boot: should be Off. Windows cannot see this setting.", text)
+        self.assertIn("    Notes:\n    - Update the BIOS first.", text)
+        self.assertLess(text.index("Change these now"), text.index("Check these by hand"))
+
+    def test_other_pc(self):
+        self.report["BIOS"]["Version"] = "F2"
+        text = self.printed(self.ocpe.bios_state(self.bios, self.report))
+        self.assertIn("    This hardware report is from another PC, so its BIOS can only be checked on that PC.\n    Disable:\n    - Secure Boot", text)
+        self.assertNotIn("should be", text)
+
+    def test_without_readings(self):
+        self.ocpe.pf.info = None
+        self.assertIsNone(self.ocpe.bios_state(self.bios, self.report))
+        self.assertIn("    Disable: Secure Boot\n", self.printed(None))
+
+
 def fake_output(payload, code=0, error=""):
     return (json.dumps(payload) if not isinstance(payload, str) else payload, error, code)
 

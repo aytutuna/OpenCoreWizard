@@ -526,6 +526,27 @@ class ExpressUsbMapTest(unittest.TestCase):
         result = self.session.collect_results(True)
         self.assertIn("changes that were not saved", result["usb_map_reason"])
 
+    def test_build_result_checks_the_bios_settings(self):
+        from Scripts import bios_checklist
+        self.ocpe.usb_map_source = None
+        self.ocpe.usb_map_reason = None
+        self.ocpe.debug_build = False
+        self.ocpe.build_summary = None
+        self.ocpe.first_boot_notes = lambda hardware: []
+        self.ocpe.post_install_notes = lambda: []
+        info = {"secure_boot": "on", "firmware": {"machine": None}}
+        self.ocpe.pf = types.SimpleNamespace(run=lambda *reports: (info, []))
+        self.ocpe.bios_checklist = bios_checklist.BIOSChecklist()
+        self.ocpe.check_bios_requirements = lambda org, hardware, overrides: {"disable": ["Secure Boot"], "enable": [], "notes": []}
+        self.ocpe.k.bios_overrides = lambda: {}
+        self.session.ensure_ocpe()
+        self.session.customized_hardware = {"CPU": {}}
+        result = self.session.collect_results(True)
+        self.assertIs(self.session.preflight_info, info)
+        self.assertEqual(result["bios_state"]["items"][0]["status"], "change")
+        self.session.preflight_info = None
+        self.assertIsNone(self.session.bios_state(result["bios"]))
+
     def test_ports_that_cannot_be_listed(self):
         self.ocpe.usb_mapper.enumerate = lambda: None
         self.assertEqual(self.session.express_usb_map(), {"possible": False, "reason": "the USB ports could not be listed."})

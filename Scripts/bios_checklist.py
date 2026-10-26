@@ -39,7 +39,7 @@ FIXED = {
 }
 SAFE_MODE = ("Before switching, start Windows once in Safe Mode (run bcdedit /set {current} safeboot minimal as administrator and restart), "
              "change the setting in the BIOS, then turn Safe Mode off with bcdedit /deletevalue {current} safeboot. Otherwise Windows will not start.")
-CLASS_CODE = re.compile(r"^PCI\\(?:VEN_[0-9A-F]{4}&)?CC_([0-9A-F]{4})")
+CLASS_CODE = re.compile(r"^PCI\\(?:VEN_[0-9A-F]{4}&)?CC_([0-9A-F]{4})([0-9A-F]{2})?")
 VMD_IDS = re.compile(r"^PCI\\VEN_8086&DEV_(9A0B|4C3D|467F|A77F|7D0B|AD0B|B60B|B06F|B07F|D70B|D73B|201D|28C0|28C1|09AB)&")
 THUNDERBOLT_IDS = re.compile(r"^PCI\\VEN_8086&DEV_(1547|1566|1568|156A|156C|1575|1577|157D|15BF|15D2|15D9|15DC|15DD|15DE|15E8|15EB|8A17|8A0D|1134|1137)&")
 
@@ -339,9 +339,12 @@ class BIOSChecklist:
             for item in device["compatible"]:
                 match = CLASS_CODE.match(item)
                 if match:
-                    classes.add(match.group(1))
+                    # Prog-if 85 is the AMT IDE-redirection function, not a disk controller
+                    if match.group(2) != "85":
+                        classes.add(match.group(1))
                     break
-        if "0101" in classes:
+        # Older ICH chips keep a PATA function (class 0101) next to the AHCI one
+        if "0101" in classes and "0106" not in classes:
             return "off", "The SATA controller is in IDE mode."
         if "0104" in classes:
             return "off", "The SATA controller is in RAID (Intel RST) mode, which macOS cannot use."

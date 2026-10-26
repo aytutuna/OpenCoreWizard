@@ -97,6 +97,14 @@ class DatasetTest(unittest.TestCase):
         self.assertEqual(explain.decision_line("device_choice", "2"), "Which device to keep: 2.")
 
 
+class InstallStepsTest(unittest.TestCase):
+    def test_steps_are_plain_sentences(self):
+        self.assertGreaterEqual(len(explanations.install_steps), 6)
+        for step in explanations.install_steps:
+            self.assertTrue(step.endswith("."), step)
+            self.assertNotIn(chr(10), step)
+
+
 class ChoicesDocTest(unittest.TestCase):
     def test_committed_doc_equals_the_generator_output(self):
         with open(os.path.join(REPO_ROOT, "docs", "reference", "choices.md"), "r", encoding="utf-8") as handle:
@@ -356,6 +364,14 @@ class WindowExplanationTest(TkTestCase):
         self.assertEqual(page.frames["audio"][0].cget("text"), "Use the recommended choice: AppleALC + SimpleHDA (sound works without any extra patching in macOS)")
         self.assertEqual(page.frames["broadcom"][0].cget("text"), "Use the recommended choice (not needed for this hardware)")
         self.assertEqual(page.frames["whatevergreen"][0].cget("text"), "Use the recommended choice: Disable it for the first boot")
+
+    def test_finish_page_lists_the_install_steps(self):
+        from Scripts.gui import pages
+        app = self.make_app(install_hooks=False)
+        page = app.page_by_class(pages.FinishPage)
+        text = page.steps.get("1.0", "end")
+        self.assertTrue(text.startswith("1. Write the stick first."))
+        self.assertIn("{}. {}".format(len(explanations.install_steps), explanations.install_steps[-1]), text)
 
     def test_pages_carry_their_notes(self):
         from Scripts.gui import pages

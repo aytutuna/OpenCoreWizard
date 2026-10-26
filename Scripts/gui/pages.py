@@ -7,7 +7,7 @@ from tkinter import messagebox
 from tkinter import ttk
 
 from Scripts import usb_mapper
-from Scripts.datasets.explanations import decisions
+from Scripts.datasets.explanations import decisions, install_steps
 from Scripts.gui import widgets
 from Scripts.gui import winsupport
 from Scripts.gui.session import StageError
@@ -999,20 +999,25 @@ class FinishPage(Page):
         self.rows = ttk.Frame(self.body)
         self.rows.grid(row=0, column=0, sticky="ew")
         self.rows.columnconfigure(1, weight=1)
-        ttk.Label(self.body, text="Analyze a boot log", font=widgets.bold_font(self)).grid(row=1, column=0, sticky="w", pady=(12, 2))
-        self.note(self.body, "A DEBUG EFI writes opencore-YYYY-MM-DD-hhmmss.txt to the root of the EFI partition it booted from. Pick that file, or the USB drive to use its newest log.", 2)
+        ttk.Label(self.body, text="What happens next", font=widgets.bold_font(self)).grid(row=1, column=0, sticky="w", pady=(12, 2))
+        frame, self.steps = widgets.scrolled_text(self.body, height=9)
+        frame.grid(row=2, column=0, sticky="nsew")
+        widgets.append_lines(self.steps, ["{}. {}".format(number, step) for number, step in enumerate(install_steps, 1)])
+        ttk.Label(self.body, text="Analyze a boot log", font=widgets.bold_font(self)).grid(row=3, column=0, sticky="w", pady=(12, 2))
+        self.note(self.body, "A DEBUG EFI writes opencore-YYYY-MM-DD-hhmmss.txt to the root of the EFI partition it booted from. Pick that file, or the USB drive to use its newest log.", 4)
         bar = ttk.Frame(self.body)
-        bar.grid(row=3, column=0, sticky="w")
+        bar.grid(row=5, column=0, sticky="w")
         ttk.Button(bar, text="Open log file...", command=self.open_log).grid(row=0, column=0, padx=(0, 6))
         ttk.Button(bar, text="Choose drive or folder...", command=self.open_folder_log).grid(row=0, column=1)
         self.verdict = ttk.Label(self.body, text="", font=widgets.bold_font(self), wraplength=760, justify="left")
-        self.verdict.grid(row=4, column=0, sticky="w", pady=(6, 4))
+        self.verdict.grid(row=6, column=0, sticky="w", pady=(6, 4))
         frame, self.findings = widgets.tree(self.body, ("severity", "line", "cause", "fix"), ("Severity", "Line", "Cause", "Fix"),
                                             {"severity": 80, "line": 60, "cause": 340, "fix": 380}, height=5)
-        frame.grid(row=5, column=0, sticky="nsew")
+        frame.grid(row=7, column=0, sticky="nsew")
         frame, self.report = widgets.scrolled_text(self.body, height=8, mono=True)
-        frame.grid(row=6, column=0, sticky="nsew", pady=(6, 0))
-        self.body.rowconfigure(6, weight=1)
+        frame.grid(row=8, column=0, sticky="nsew", pady=(6, 0))
+        self.body.rowconfigure(2, weight=1)
+        self.body.rowconfigure(8, weight=1)
 
     def on_show(self):
         for child in self.rows.winfo_children():

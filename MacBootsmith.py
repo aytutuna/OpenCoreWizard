@@ -1,5 +1,6 @@
 from Scripts.datasets import os_data
 from Scripts.datasets import chipset_data
+from Scripts.datasets import explanations
 from Scripts.gui import session
 from Scripts.sniffer import hardware_sniffer
 from Scripts import acpi_guru
@@ -701,6 +702,10 @@ class OCPE:
             for note in self.debug_build_notes():
                 print("    - {}".format(note))
             print("")
+        print("* Installing macOS, step by step:")
+        for number, step in enumerate(explanations.install_steps, 1):
+            print("    {}. {}".format(number, step))
+        print("")
         print("* After Installing macOS:")
         for note in self.post_install_notes():
             print("    - {}".format(note))

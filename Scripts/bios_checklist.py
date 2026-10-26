@@ -7,7 +7,7 @@ FOUR_GB = 0x100000000
 OTHER_PC = "This hardware report is from another PC, so the app cannot check that PC's BIOS from here. Run the app on that PC to check it, or go through the list below in its BIOS yourself."
 GROUPS = (
     ("change", "Change these in the BIOS before you boot from the stick"),
-    ("ok", "Nothing to do (already right, not on this PC, or handled by this build)"),
+    ("ok", "Nothing to do"),
     ("unknown", "Check these yourself in the BIOS (the app could not tell from Windows)")
 )
 RULES = (
@@ -171,11 +171,12 @@ class BIOSChecklist:
     def dma_protection(self, firmware):
         return firmware.get("dma_guard") == 1 or 3 in (firmware.get("device_guard") or [])
 
-    def read_secure_boot(self, firmware, context):
-        return {
-            "on": ("on", "Windows reports it is on. OpenCore will not start while it is on."),
-            "off": ("off", "Windows reports it is off.")
-        }.get(context["secure_boot"], (None, "Windows could not read it."))
+    def read_secure_boot(self, context):
+        if context["secure_boot"] == "on":
+            return "on", "Windows reports it is on. OpenCore will not start while it is on."
+        if context["secure_boot"] == "off":
+            return "off", "Windows reports it is off."
+        return None, "Windows could not read it."
 
     def read_csm(self, firmware, context):
         kind = firmware.get("firmware_type")
@@ -184,10 +185,10 @@ class BIOSChecklist:
         if kind == 2 and context["secure_boot"] == "on":
             return "off", "Secure Boot is on, and boards only allow that with CSM off."
         if kind == 2:
-            return None, "Windows started in UEFI mode (the modern way to start), but CSM (support for the old way) can still be on as well. Check it in the BIOS and turn it off."
+            return None, "Windows started in UEFI mode, but CSM (legacy boot) can be on alongside it. Turn it off in the BIOS."
         return None, "Windows could not tell how it started."
 
-    def read_vtd(self, firmware, context):
+    def read_vtd(self, firmware):
         dmar = firmware.get("dmar")
         if dmar is None:
             return None, "Windows could not read the BIOS tables, so the app cannot tell."
@@ -198,12 +199,12 @@ class BIOSChecklist:
         if dmar["present"]:
             return None, "The BIOS gives Windows a broken VT-d table (DMAR) with no working VT-d unit in it, so the app cannot tell whether VT-d is on. Check it in the BIOS."
         if self.masked(firmware):
-            return None, "Windows sees no VT-d table (DMAR). But Windows runs on a hypervisor (Hyper-V, used by WSL2 and Memory Integrity, or a virtual machine) or was started through OpenCore, and both can hide the table. Check VT-d in the BIOS."
+            return None, "Windows sees no VT-d table (DMAR), but Hyper-V, a virtual machine or OpenCore can hide it. Check VT-d in the BIOS."
         if self.dma_protection(firmware):
             return None, "Windows sees no VT-d table (DMAR) but still reports memory protection. These do not match, so the app cannot tell. Check VT-d in the BIOS."
         return "off", "The BIOS gives Windows no VT-d table (DMAR), so VT-d is off."
 
-    def read_iommu(self, firmware, context):
+    def read_iommu(self, firmware):
         ivrs = firmware.get("ivrs")
         if ivrs is None:
             return None, "Windows could not read the BIOS tables, so the app cannot tell."
@@ -240,7 +241,7 @@ class BIOSChecklist:
             return "off", "Windows reports it is off in the BIOS."
         return None, "Windows could not read it."
 
-    def read_ht(self, firmware, context):
+    def read_ht(self, firmware):
         cpu = firmware.get("cpu") or {}
         if firmware.get("smt_cores"):
             return "on", "Windows sees two threads on some CPU cores, so it is on."
@@ -269,7 +270,7 @@ class BIOSChecklist:
             return "off", "SGX is not active, which is what macOS needs. In the BIOS it may show as Disabled, or as Software Controlled (it stays off until a program turns it on). Either is fine."
         return None, "Windows could not tell (this needs Windows 10 or newer)."
 
-    def read_ptt(self, firmware, context):
+    def read_ptt(self, firmware):
         tpm = firmware.get("tpm")
         if tpm is None:
             devices = firmware.get("devices")
@@ -310,13 +311,7 @@ class BIOSChecklist:
             return None, "Windows sees a {} with a problem, so it cannot tell.".format(label)
         return "none", "The firmware shows no {} to Windows (it is off, or the board has none), so there is nothing to change.".format(label)
 
-    def read_serial(self, firmware, context):
-        return self.read_port(firmware, ("PNP0500", "PNP0501"), "COM (serial) port")
-
-    def read_parallel(self, firmware, context):
-        return self.read_port(firmware, ("PNP0400", "PNP0401"), "printer (parallel) port")
-
-    def read_thunderbolt(self, firmware, context):
+    def read_thunderbolt(self, firmware):
         devices = firmware.get("devices")
         if devices is None:
             return None, "Windows could not list the devices."
@@ -325,7 +320,7 @@ class BIOSChecklist:
             return "on", "Windows sees a Thunderbolt or USB4 controller, so it is on."
         return None, "Windows sees no Thunderbolt controller. If your PC has Thunderbolt ports, check the BIOS."
 
-    def read_sata(self, firmware, context):
+    def read_sata(self, firmware):
         devices = firmware.get("devices")
         if devices is None:
             return None, "Windows could not list the devices."
@@ -357,7 +352,7 @@ class BIOSChecklist:
     def is_display(self, device):
         return any(item.upper().startswith("PCI\\CC_03") for item in device["compatible"])
 
-    def read_above4g(self, firmware, context):
+    def read_above4g(self, firmware):
         bars = firmware.get("bars")
         if bars is None:
             return None, "Windows could not read where the devices sit in memory."
@@ -370,7 +365,7 @@ class BIOSChecklist:
             return "on", "Built-in parts of the processor use memory addresses above 4 GB, so it is probably on. Recent Intel chips do this by themselves, so check the BIOS to be sure."
         return None, "No device uses memory addresses above 4 GB. That does not prove the setting is off, so check Above 4G Decoding in the BIOS."
 
-    def read_rebar(self, firmware, context):
+    def read_rebar(self, firmware):
         bars = firmware.get("bars")
         if bars is None:
             return None, "Windows could not read where the devices sit in memory."
@@ -392,21 +387,52 @@ class BIOSChecklist:
             return "on", "Secure Boot is on, which on ASUS boards means OS Type is set to Windows UEFI mode. Secure Boot still has to go off. On ASUS, do that by switching OS Type to Other OS, or by clearing the Secure Boot keys under Key Management and leaving OS Type as it is."
         return None, "Windows cannot tell Other OS from Windows UEFI mode here. Either works as long as Secure Boot ends up off."
 
+    def read(self, rule, firmware, context):
+        if rule == "secure_boot":
+            return self.read_secure_boot(context)
+        if rule == "csm":
+            return self.read_csm(firmware, context)
+        if rule == "vtd":
+            return self.read_vtd(firmware)
+        if rule == "iommu":
+            return self.read_iommu(firmware)
+        if rule == "vtx":
+            return self.read_vtx(firmware, context)
+        if rule == "ht":
+            return self.read_ht(firmware)
+        if rule == "sgx":
+            return self.read_sgx(firmware, context)
+        if rule == "ptt":
+            return self.read_ptt(firmware)
+        if rule == "serial":
+            return self.read_port(firmware, ("PNP0500", "PNP0501"), "COM (serial) port")
+        if rule == "parallel":
+            return self.read_port(firmware, ("PNP0400", "PNP0401"), "printer (parallel) port")
+        if rule == "thunderbolt":
+            return self.read_thunderbolt(firmware)
+        if rule == "sata":
+            return self.read_sata(firmware)
+        if rule == "above4g":
+            return self.read_above4g(firmware)
+        if rule == "rebar":
+            return self.read_rebar(firmware)
+        return self.read_os_type(firmware, context)
+
     def item_status(self, setting, want, firmware, context):
         rule = next((name for word, name in RULES if word in setting), None)
         if rule in FIXED:
             return "unknown", FIXED[rule]
         if rule == "handoff":
-            return "ok", "Windows cannot see it. That is fine: this build tells OpenCore to take control of the USB ports itself (ReleaseUsbOwnership), so it works either way. Turn it on if your BIOS has the option."
+            return "ok", "Windows cannot see it, and it does not matter: this build sets ReleaseUsbOwnership so OpenCore takes the USB ports itself. Turn it on if your BIOS has it."
         if rule == "cfg_lock":
             if context["vendor"] != "Intel":
                 return "unknown", "Windows cannot read it."
             quirk = "AppleCpuPmCfgLock" if context["codename"] in cpu_data.IntelCPUGenerations[62:] else "AppleXcpmCfgLock"
-            return "ok", "Windows cannot read it. That is fine: this build turns on {} in config.plist, which lets macOS start with CFG Lock on. To see the real state, start OpenCore from the stick, press Space to show the hidden tools, and run ControlMsrE2.".format(quirk)
+            return "ok", "Not readable from Windows. This build turns on {} so macOS starts even with CFG Lock on. To see the real state, start OpenCore from the stick, press Space to show the hidden tools, and run ControlMsrE2.".format(quirk)
         if rule is None:
             return "unknown", "Windows cannot see this setting."
 
-        seen, text = getattr(self, "read_" + rule)(firmware, context)
+        seen, text = self.read(rule, firmware, context)
         if rule == "csm":
             want = "off"
         status = "unknown" if seen is None else "ok" if seen in (want, "none") else "change"
@@ -416,11 +442,11 @@ class BIOSChecklist:
         if rule == "vtd" and want == "off" and context["vendor"] == "Intel":
             return "ok", text + " This build tells macOS to ignore VT-d (the DisableIoMapper setting), so you can leave it as it is."
         if rule == "vtd" and want == "on" and seen == "on" and firmware["dmar"]["rmrr"]:
-            text += " The table also reserves some memory for devices. If you run macOS 13.3 or newer with more than 16 GB of memory and the graphics built into the processor turned on, you may also need the DisableIoMapperMapping setting and a patched DMAR table. This build sets neither, so add them yourself if you run into problems."
+            text += " The table reserves memory for devices (RMRR). On macOS 13.3+ with more than 16 GB and the iGPU on, that can need DisableIoMapperMapping and a patched DMAR table; this build sets neither."
         if rule == "iommu" and status == "change":
-            text += " Turn it off. This build has no workaround for it on AMD. macOS usually ignores it, so if the boot stalls, check this setting first."
+            text += " macOS usually ignores it on AMD and this build has no workaround, so turn it off, especially if the boot stalls."
         if rule == "ptt" and seen == "on" and want == "off":
-            return "ok", text + " That is fine: macOS ignores the TPM. Leave it on if Windows uses BitLocker, Device Encryption or Windows Hello, because turning it off makes Windows ask for the BitLocker recovery key and Windows Hello has to be set up again."
+            return "ok", text + " macOS ignores the TPM. Leave it on if Windows uses BitLocker, Device Encryption or Windows Hello, because turning it off makes Windows ask for the BitLocker recovery key and Windows Hello has to be set up again."
         if rule == "thunderbolt" and status == "change":
             text += " The OpenCore install guide suggests turning it off for the first install only. On laptops, turning it off can also stop USB-C data or video, so turn it back on once macOS is installed."
         if rule == "sata" and status == "change":
@@ -433,9 +459,9 @@ class BIOSChecklist:
         firmware = (info or {}).get("firmware")
         if not bios or not firmware:
             return None
-        if not self.same_pc(hardware_report or {}, firmware.get("machine")):
+        if not self.same_pc(hardware_report, firmware.get("machine")):
             return {"other_pc": True, "items": []}
-        context = self.context(hardware_report or {}, firmware, info)
+        context = self.context(hardware_report, firmware, info)
         items = []
         for want, field in (("off", "disable"), ("on", "enable")):
             for setting in bios.get(field) or []:
@@ -466,7 +492,7 @@ class BIOSChecklist:
         ]
         if not amd:
             rows.insert(3, ("Intel SGX (secure enclaves)", "sgx"))
-        return [(label, getattr(self, "read_" + rule)(firmware, context)[1]) for label, rule in rows]
+        return [(label, self.read(rule, firmware, context)[1]) for label, rule in rows]
 
 
 def split_setting(setting, want):
@@ -479,7 +505,7 @@ def split_setting(setting, want):
 
 def item_line(item):
     name, value = split_setting(item["setting"], item["want"])
-    # the guide's target would contradict evidence like "on, and this build handles it"
+    # an "ok" item may already be in the wrong state on purpose (VT-d with DisableIoMapper), so don't print a target
     if item.get("status") == "ok":
         return "{}: {}".format(name, item["evidence"])
     return "{}: should be {}. {}".format(name, value, item["evidence"])

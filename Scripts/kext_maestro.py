@@ -188,7 +188,7 @@ class KextMaestro:
     def oclp_devices(self, hardware_report, macos_version):
         companion = self.kexts[kext_data.kext_index_by_name["AppleBCMWLANCompanion"]].checked
         found = []
-        for device_type, devices in hardware_report.items():
+        for devices in hardware_report.values():
             if not isinstance(devices, dict):
                 continue
             for device_name, device_props in devices.items():

@@ -658,9 +658,8 @@ class OCPE:
     def post_install_notes(self):
         return [
             "The macOS installer only copies macOS to the internal disk. The part that starts macOS (OpenCore, the EFI folder this app built) is still only on the USB stick. So for now leave the stick plugged in and pick it in the BIOS boot menu every time you start the PC.",
-            "Once macOS runs from the stick, move the EFI folder onto the internal disk. Every disk has a small hidden start-up area called the EFI partition; the stick has one and the internal disk has one. Open the post-install kit (the PostInstall folder on the stick, made on the Post-install page or with menu option 9 in the terminal). Copy the EFI folder from the stick to the Desktop as a backup (a stick made by this app shows up as OPENCORE), then run the MountEFI tool to open the internal disk's hidden area and copy the EFI folder onto it. POST-INSTALL.md in the kit has the steps in order.",
-            "Then, in the copy you just made on the internal disk, open the settings file EFI/OC/config.plist with the ProperTree tool from the kit. Find the setting Misc -> Boot -> LauncherOption. It is set to Disabled; change it to Full and save. On the next start OpenCore adds itself to the BIOS boot menu, so the PC starts macOS without the stick. If the BIOS screen shows the name Insyde (common on laptops), use Short instead of Full.",
-            "Why LauncherOption is Disabled in this build: while you test from the stick, OpenCore must not change the BIOS boot order of this PC. You turn it on only after the copy to the internal disk works."
+            "Once macOS runs from the stick, copy the EFI folder to the internal disk's EFI partition (a small hidden start-up area every disk has). Back up the stick's EFI folder to the Desktop first (the stick shows up as OPENCORE), then mount the internal one with MountEFI from the kit's PostInstall folder (made on the Post-install page or with menu option 9 in the terminal). POST-INSTALL.md lists the steps.",
+            "Then, in the copy you just made on the internal disk, open the settings file EFI/OC/config.plist with the ProperTree tool from the kit. Find the setting Misc -> Boot -> LauncherOption. It is Disabled so testing from the stick never changes the boot order; change it to Full and save. On the next start OpenCore adds itself to the BIOS boot menu, so the PC starts macOS without the stick. If the BIOS screen shows the name Insyde (common on laptops), use Short instead of Full."
         ]
 
     def before_using_efi(self, org_hardware_report, hardware_report):
@@ -685,9 +684,7 @@ class OCPE:
             print("    - {} from your USB map is in the {} folder and replaces UTBDefault.kext.".format(map_kext, kexts_folder))
             print("    - After installing macOS, check that every mapped port works. If one does not, map again with option 6 and rebuild.")
         else:
-            if self.usb_map_reason:
-                print("    - {}".format(self.usb_map_reason))
-            print("    - Map USB ports with option 6 (USB Port Mapping) before building, then build again.")
+            print("    - {}".format(self.usb_map_reason or "Map USB ports with option 6 (USB Port Mapping) before building, then build again."))
             print("    - Until then UTBDefault.kext enables every port, which can go past the 15-port limit per controller.")
         print("    - XhciPortLimit does not work on macOS 11.3 and newer, so do not rely on it to lift the 15-port limit.")
         print("")

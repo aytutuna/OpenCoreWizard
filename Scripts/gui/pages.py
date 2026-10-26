@@ -343,11 +343,11 @@ class OptionsPage(Page):
     GROUPS = (
         ("audio", "Audio on macOS 26 (AppleHDA was removed)", (
             ("", "Use the recommended choice"),
-            ("1", "AppleALC + OCLP root patch (sound works after you run OpenCore Legacy Patcher once in macOS)"),
-            ("2", "AppleALC + SimpleHDA (sound works without any extra patching in macOS)"))),
+            ("1", "AppleALC + OCLP root patch (patch again after each macOS update)"),
+            ("2", "AppleALC + SimpleHDA (no root patch)"))),
         ("broadcom", "Broadcom Wi-Fi on macOS 14 and newer", (
             ("", "Use the recommended choice"),
-            ("1", "OCLP root patches (Wi-Fi works after you run OpenCore Legacy Patcher once in macOS)"),
+            ("1", "OCLP root patches (patch again after each macOS update)"),
             ("2", "AppleBCMWLANCompanion (needs VT-d, unstable)"))),
         ("whatevergreen", "WhateverGreen on first boot (AMD GPU, macOS 26)", (
             ("", "Use the recommended choice"),

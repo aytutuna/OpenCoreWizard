@@ -265,12 +265,12 @@ stages = {
 }
 
 install_steps = [
-    "Write the stick first. The USB page erases a stick and copies the recovery image, the EFI folder and the post-install kit onto it.",
-    "Set the BIOS the way the Build page lists it after the build (Secure Boot off, CSM off, and the rest; the Post-install page explains each one), and fix what the Windows preflight warned about, such as BitLocker.",
+    "Write the stick (USB page in the window, menu option 10 in the terminal). It erases the stick and copies the recovery image, the EFI folder and the post-install kit onto it.",
+    "Set the BIOS as the build output lists it (Secure Boot off, CSM off, and the rest; the Post-install page in the window explains each one), and fix what the Windows preflight warned about, such as BitLocker.",
     "Plug the stick in, start the PC and open the BIOS boot menu (usually F12, F11, F8 or Esc). Pick the stick's UEFI entry. OpenCore's menu appears; choose the recovery entry, called macOS Base System.",
-    "If the screen stays black or the PC restarts, nothing on the PC has changed: unplug the stick and Windows starts as before. Build again as DEBUG and use the log analyzer below to see where it stopped.",
+    "If the screen stays black or the PC restarts, nothing on the PC has changed: unplug the stick and Windows starts as before. Build again as DEBUG and run the boot log analyzer (Finish page, or menu option 11) to see where it stopped.",
     "In Disk Utility choose View, Show All Devices, select the disk or partition for macOS and erase it as APFS with a GUID partition map. A separate SSD is the safe choice. To share the Windows disk, shrink Windows in Disk Management first, then add a partition in the free space here and format it APFS. BitLocker must be off.",
     "Choose Reinstall macOS. The stick only holds a small recovery image, so the installer downloads the full macOS from Apple. Use an Ethernet cable; Wi-Fi may not work yet.",
     "The install restarts three or four times. Each time pick the stick in the BIOS boot menu again and choose macOS Installer in OpenCore's menu, later the name of the new macOS volume.",
-    "When the Setup your Mac screen appears, finish setup. Then follow the After installing macOS notes from the Build page and POST-INSTALL.md in the kit: move the EFI folder to the internal disk, turn on LauncherOption, check USB, sound and sleep. Run root patches only if the Build page said this build needs them.",
+    "Finish the macOS setup screens. Then follow the After installing macOS notes and POST-INSTALL.md in the kit (move the EFI folder to the internal disk, turn on LauncherOption). Run root patches only if the build output said this build needs them.",
 ]

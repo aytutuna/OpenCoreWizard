@@ -208,7 +208,7 @@ class ExpressPageTest(TkTestCase):
         expected = ("BIOS settings before you boot from the stick\n"
                     "  Change these in the BIOS before you boot from the stick:\n"
                     "    - Secure Boot: should be Off. Windows reports it is on. OpenCore will not start while it is on.\n"
-                    "  Nothing to do (already right, not on this PC, or handled by this build):\n"
+                    "  Nothing to do:\n"
                     "    - VT-d: The firmware publishes no VT-d table (DMAR), so VT-d is off.\n"
                     "  Check these yourself in the BIOS (the app could not tell from Windows):\n"
                     "    - Fast Boot: should be Off. Windows cannot see this setting.\n"

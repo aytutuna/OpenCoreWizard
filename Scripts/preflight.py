@@ -6,6 +6,13 @@ import os
 import re
 import subprocess
 
+def as_list(value):
+    if value is None:
+        return []
+    if isinstance(value, dict) and "value" in value:
+        value = value["value"]
+    return value if isinstance(value, list) else [value]
+
 class Preflight:
     esp_guid = "{c12a7328-f81f-11d2-ba4b-00a0c93ec93b}"
     min_esp_mb = 150
@@ -120,23 +127,11 @@ class Preflight:
         info["firmware"] = self.parse_firmware(data)
         return info
 
-    def as_list(self, value):
-        if value is None:
-            return []
-        if isinstance(value, dict) and "value" in value:
-            value = value["value"]
-        return value if isinstance(value, list) else [value]
-
     def parse_firmware(self, data):
-        def flag(value):
-            return value if isinstance(value, bool) else None
-
         def strings(value):
-            return [str(item).upper() for item in self.as_list(value) if isinstance(item, str) and item]
+            return [str(item).upper() for item in as_list(value) if isinstance(item, str) and item]
 
         machine = data.get("Machine") if isinstance(data.get("Machine"), dict) else None
-        if machine:
-            machine = dict(machine, Hypervisor=flag(machine.get("Hypervisor")))
         virtualization = data.get("Virtualization") if isinstance(data.get("Virtualization"), dict) else {}
         devices = None
         if "Devices" in data:
@@ -145,15 +140,15 @@ class Preflight:
                 "name": str(device.get("Name") or ""),
                 "hardware": strings(device.get("Hardware")),
                 "compatible": strings(device.get("Compatible")),
-                "error": device.get("Error") if isinstance(device.get("Error"), int) else None
-            } for device in self.as_list(data["Devices"]) if isinstance(device, dict)]
+                "error": device.get("Error")
+            } for device in as_list(data["Devices"]) if isinstance(device, dict)]
         return {
             "machine": machine,
-            "vmx_capable": flag(virtualization.get("Capable")),
-            "virt_enabled": flag(virtualization.get("Enabled")),
-            "device_guard": [item for item in self.as_list(data.get("DeviceGuard")) if isinstance(item, int)] if "DeviceGuard" in data else None,
+            "vmx_capable": virtualization.get("Capable"),
+            "virt_enabled": virtualization.get("Enabled"),
+            "device_guard": as_list(data.get("DeviceGuard")) if "DeviceGuard" in data else None,
             "devices": devices,
-            "disk_bus": [item for item in self.as_list(data.get("DiskBus")) if isinstance(item, int)] if "DiskBus" in data else None
+            "disk_bus": as_list(data.get("DiskBus")) if "DiskBus" in data else None
         }
 
     def collect(self):
@@ -191,6 +186,7 @@ class Preflight:
         return warnings
 
     def run(self, org_hardware_report=None, hardware_report=None):
+        # cleared first so a failed run does not leave the last machine's readings behind
         self.info = None
         self.info = self.collect()
         return self.info, self.warnings(self.info, org_hardware_report, hardware_report)

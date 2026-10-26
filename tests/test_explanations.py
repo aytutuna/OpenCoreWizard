@@ -102,7 +102,7 @@ class InstallStepsTest(unittest.TestCase):
         self.assertGreaterEqual(len(explanations.install_steps), 6)
         for step in explanations.install_steps:
             self.assertTrue(step.endswith("."), step)
-            self.assertNotIn(chr(10), step)
+            self.assertNotIn("\n", step)
 
 
 class ChoicesDocTest(unittest.TestCase):
@@ -361,7 +361,7 @@ class WindowExplanationTest(TkTestCase):
         page = app.page_by_class(pages.OptionsPage)
         page.session.option_relevance = lambda darwin: {"audio": True, "broadcom": False, "whatevergreen": True}
         page.on_show()
-        self.assertEqual(page.frames["audio"][0].cget("text"), "Use the recommended choice: AppleALC + SimpleHDA (sound works without any extra patching in macOS)")
+        self.assertEqual(page.frames["audio"][0].cget("text"), "Use the recommended choice: AppleALC + SimpleHDA (no root patch)")
         self.assertEqual(page.frames["broadcom"][0].cget("text"), "Use the recommended choice (not needed for this hardware)")
         self.assertEqual(page.frames["whatevergreen"][0].cget("text"), "Use the recommended choice: Disable it for the first boot")
 
@@ -370,7 +370,7 @@ class WindowExplanationTest(TkTestCase):
         app = self.make_app(install_hooks=False)
         page = app.page_by_class(pages.FinishPage)
         text = page.steps.get("1.0", "end")
-        self.assertTrue(text.startswith("1. Write the stick first."))
+        self.assertTrue(text.startswith("1. Write the stick (USB page in the window"))
         self.assertIn("{}. {}".format(len(explanations.install_steps), explanations.install_steps[-1]), text)
 
     def test_pages_carry_their_notes(self):

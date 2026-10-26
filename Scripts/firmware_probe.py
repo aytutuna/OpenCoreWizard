@@ -7,7 +7,6 @@ ERROR_NOT_FOUND = 1168
 TBS_E_TPM_NOT_FOUND = 0x8028400F
 # rcx = leaf, edx = subleaf, r8 = uint32[4] out (Windows x64 calling convention)
 CPUID_CODE = bytes.fromhex("5389c889d10fa241890041895804418948084189500c5bc3")
-FOUR_GB = 0x100000000
 
 
 def kernel32():

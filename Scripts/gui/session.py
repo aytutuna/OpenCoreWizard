@@ -408,7 +408,7 @@ class Session:
         return self.ocpe.check_bios_requirements(self.hardware_report, self.customized_hardware, self.ocpe.k.bios_overrides())
 
     def bios_state(self, bios):
-        if not bios or not self.preflight_info or self.ocpe is None:
+        if not bios:
             return None
         return self.ocpe.bios_checklist.state(bios, self.preflight_info, self.hardware_report)
 

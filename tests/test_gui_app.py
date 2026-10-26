@@ -166,7 +166,8 @@ class ExpressPageTest(TkTestCase):
         session.configuration = lambda: {"macos_name": "macOS Tahoe 26", "macos_version": "25.99.99", "needs_oclp": False, "smbios_model": "iMac20,1",
                                          "debug": False, "kexts": ["Lilu"], "acpi_patches": [], "disabled_devices": []}
         session.build_result = {"ocvalidate": "passed", "result_dir": "Results", "usb_map": None, "usb_map_reason": "No USB map has been saved yet.",
-                                "preflight": [], "first_boot": [], "debug_notes": [], "post_install": []}
+                                "preflight": [], "first_boot": [], "debug_notes": [], "post_install": [],
+                                "bios": {"disable": ["Secure Boot", "CSM"], "enable": ["Above 4G Decoding"], "notes": ["n"]}}
         session.kit_result = {"dest_dir": "Results/PostInstall", "checklist": "steps", "tools": {}, "bios": None}
         session.options = {"audio": None, "broadcom": "1", "whatevergreen": "yes", "debug": False}
         session.native_macos_version = ("17.0.0", "25.99.99")
@@ -184,6 +185,9 @@ class ExpressPageTest(TkTestCase):
         notes = app.page_by_class(pages_module.BuildPage).notes.get("1.0", "end")
         self.assertIn("No USB map has been saved yet.", notes)
         self.assertIn("press Save map, then build again", notes)
+        self.assertIn("BIOS settings before you boot from the stick", notes)
+        self.assertIn("Turn off: Secure Boot, CSM.", notes)
+        self.assertLess(notes.index("Turn off: Secure Boot"), notes.index("No USB map"))
 
     def test_build_page_says_whether_the_usb_map_is_used(self):
         from Scripts.gui import pages as pages_module

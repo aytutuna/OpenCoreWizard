@@ -15,6 +15,7 @@ class Preflight:
     mbr_warning = "Windows is installed in legacy MBR mode; OpenCore cannot boot it and the machine must switch to UEFI."
     esp_warning = "The Windows EFI partition is small ({} MB); macOS installs expect about 200 MB if you plan to share it. Installing macOS on its own disk avoids this."
     legacy_warning = "The firmware runs in Legacy mode: enable UEFI mode (disable Legacy/CSM (Compatibility Support Module)) before booting OpenCore."
+    secure_boot_warning = "Secure Boot is turned on in the BIOS right now. OpenCore will not start while it is on; turn it off before booting from the stick."
     shell_protection = {
         "1": "on",
         "3": "on",
@@ -63,6 +64,7 @@ class Preflight:
             parts.append("try { " + shell_query + " } catch { $r.BitLockerError = $_.Exception.Message }")
         parts.append("try { $d = Get-Disk -ErrorAction Stop | Where-Object IsSystem | Select-Object -First 1; if ($d) { $r.Disk = [ordered]@{Number=$d.Number; PartitionStyle=[string]$d.PartitionStyle} } else { $r.DiskError = 'no system disk found' } } catch { $r.DiskError = $_.Exception.Message }")
         parts.append("try { $r.Esp = @(Get-Partition -ErrorAction Stop | Where-Object GptType -eq '" + self.esp_guid + "' | ForEach-Object { [ordered]@{DiskNumber=$_.DiskNumber; Size=[int64]$_.Size} }) } catch { $r.EspError = $_.Exception.Message }")
+        parts.append("try { $r.SecureBoot = [int](Get-ItemProperty -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\SecureBoot\\State' -ErrorAction Stop).UEFISecureBootEnabled } catch { $r.SecureBootError = $_.Exception.Message }")
         parts.append("$r | ConvertTo-Json -Compress -Depth 4")
         return " ".join(parts)
 
@@ -87,8 +89,11 @@ class Preflight:
             "bitlocker": self.bitlocker_state(data.get("BitLocker")),
             "bitlocker_source": (data.get("BitLocker") or {}).get("Source"),
             "partition_style": None,
-            "esp_mb": None
+            "esp_mb": None,
+            "secure_boot": None
         }
+        if data.get("SecureBoot") in (0, 1):
+            info["secure_boot"] = "on" if data["SecureBoot"] else "off"
 
         disk = data.get("Disk")
         if isinstance(disk, dict) and disk.get("PartitionStyle"):
@@ -123,6 +128,8 @@ class Preflight:
                 warnings.append(self.bitlocker_warning)
             elif info.get("bitlocker") == self.unknown_bitlocker:
                 warnings.append(self.bitlocker_unknown_warning)
+            if info.get("secure_boot") == "on":
+                warnings.append(self.secure_boot_warning)
             if info.get("partition_style") == "MBR":
                 warnings.append(self.mbr_warning)
             esp_mb = info.get("esp_mb")
@@ -147,6 +154,7 @@ class Preflight:
             return None
         if info:
             print("{}BitLocker on the system drive: {}".format(indent, info.get("bitlocker")))
+            print("{}Secure Boot: {}".format(indent, info.get("secure_boot") or "unknown"))
             print("{}System disk partition style: {}".format(indent, info.get("partition_style") or "unknown"))
             print("{}Windows EFI partition: {}".format(indent, "{} MB".format(info.get("esp_mb")) if info.get("esp_mb") is not None else "not found"))
         for warning in warnings:

@@ -161,6 +161,8 @@ class WelcomePage(Page):
             app.page_by_class(RecoveryPage).done(summary["recovery"])
         app.page_by_class(PostInstallPage).show_kit(session.kit_result)
         lines = summary_lines(summary)
+        if summary.get("bios"):
+            lines += ["BIOS settings before you boot from the stick:"] + ["  - {}".format(line) for line in bios_lines(summary["bios"])[:2]]
         self.set_label(self.express_result, "Last run: {}, {}, ocvalidate {}.".format(summary["macos_name"], summary["smbios"], summary["ocvalidate"]), "green")
         messagebox.showinfo("Build everything", "\n".join(lines + ["", "Next: write the USB drive on the USB page."]), parent=self)
         app.show_page(app.pages.index(app.page_by_class(UsbWriterPage)))
@@ -171,6 +173,7 @@ class WelcomePage(Page):
         if info:
             esp = info.get("esp_mb")
             for check, value in (("BitLocker on the system drive", info.get("bitlocker")),
+                                 ("Secure Boot", info.get("secure_boot") or "unknown"),
                                  ("System disk partition style", info.get("partition_style") or "unknown"),
                                  ("Windows EFI partition", "{} MB".format(esp) if esp is not None else "not found")):
                 self.checks.insert("", "end", values=(check, value))
@@ -641,6 +644,18 @@ class UsbMapPage(Page):
         self.session.set_usb_map_disabled(bool(self.no_map.get()))
 
 
+def bios_lines(bios):
+    if not bios:
+        return []
+    lines = []
+    if bios.get("disable"):
+        lines.append("Turn off: {}.".format(", ".join(bios["disable"])))
+    if bios.get("enable"):
+        lines.append("Turn on: {}.".format(", ".join(bios["enable"])))
+    lines.append("OpenCore does not start until these are set. The Post-install page and POST-INSTALL.md in the kit explain each one.")
+    return lines
+
+
 class BuildPage(Page):
     title = "Build"
     heading = "Build the OpenCore EFI"
@@ -717,6 +732,7 @@ class BuildPage(Page):
                          "macOS accepts at most 15 ports per USB chip, so with every port on some may stay dead and sleep may fail. "
                          "To fix this, pick the ports on the USB mapping page, press Save map, then build again."]
         sections = [
+            ("BIOS settings before you boot from the stick", bios_lines(result.get("bios"))),
             ("USB map", usb_lines),
             ("Windows preflight", result["preflight"] or ["No warnings."]),
             ("First boot", result["first_boot"]),

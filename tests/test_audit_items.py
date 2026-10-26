@@ -405,7 +405,7 @@ class PreflightWarningTest(unittest.TestCase):
         self.uefi = {"BIOS": {"Firmware Type": "UEFI"}}
 
     def info(self, **values):
-        base = {"bitlocker": "off", "partition_style": "GPT", "esp_mb": 260}
+        base = {"bitlocker": "off", "partition_style": "GPT", "esp_mb": 260, "secure_boot": "off"}
         base.update(values)
         return base
 
@@ -420,6 +420,17 @@ class PreflightWarningTest(unittest.TestCase):
     def test_bitlocker_unknown(self):
         warnings = self.pf.warnings(self.info(bitlocker=preflight.Preflight.unknown_bitlocker), self.uefi, self.uefi)
         self.assertEqual(warnings, [preflight.Preflight.bitlocker_unknown_warning])
+
+    def test_secure_boot_on(self):
+        self.assertEqual(self.pf.warnings(self.info(secure_boot="on"), self.uefi, self.uefi), [preflight.Preflight.secure_boot_warning])
+
+    def test_secure_boot_unknown_is_quiet(self):
+        self.assertEqual(self.pf.warnings(self.info(secure_boot=None), self.uefi, self.uefi), [])
+
+    def test_secure_boot_parsed(self):
+        self.assertEqual(self.pf.parse({"SecureBoot": 1})["secure_boot"], "on")
+        self.assertEqual(self.pf.parse({"SecureBoot": 0})["secure_boot"], "off")
+        self.assertIsNone(self.pf.parse({"SecureBootError": "denied"})["secure_boot"])
 
     def test_bitlocker_suspended_no_warning(self):
         self.assertEqual(self.pf.warnings(self.info(bitlocker="suspended"), self.uefi, self.uefi), [])

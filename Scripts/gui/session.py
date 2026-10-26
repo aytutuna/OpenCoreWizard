@@ -325,6 +325,10 @@ class Session:
             whatevergreen = self.ocpe.k.has_discrete_amd_gpu(report) and not self.ocpe.k.monitor_on_intel_gpu(report)
         return {"audio": bool(audio), "broadcom": bool(broadcom), "whatevergreen": bool(whatevergreen), "debug": True}
 
+    def recommended_options(self, darwin):
+        oclp = any(choice["darwin"] == darwin and choice["oclp"] for choice in self.macos_choices())
+        return {"audio": "1" if oclp else "2", "broadcom": "1", "whatevergreen": "yes"}
+
     def option_presets(self, darwin, options=None):
         options = self.options if options is None else options
         # an empty answer takes the prompt's own recommended default

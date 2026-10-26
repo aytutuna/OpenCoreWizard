@@ -347,6 +347,16 @@ class WindowExplanationTest(TkTestCase):
         app.show_page(app.pages.index(page))
         app.update_idletasks()
 
+    def test_blank_option_names_the_recommended_choice(self):
+        from Scripts.gui import pages
+        app = self.make_app(install_hooks=False)
+        page = app.page_by_class(pages.OptionsPage)
+        page.session.option_relevance = lambda darwin: {"audio": True, "broadcom": False, "whatevergreen": True}
+        page.on_show()
+        self.assertEqual(page.frames["audio"][0].cget("text"), "Use the recommended choice: AppleALC + SimpleHDA (no audio root patch)")
+        self.assertEqual(page.frames["broadcom"][0].cget("text"), "Use the recommended choice (not needed for this hardware)")
+        self.assertTrue(page.frames["whatevergreen"][0].cget("text").startswith("Use the recommended choice: "))
+
     def test_pages_carry_their_notes(self):
         from Scripts.gui import pages
         app = self.make_app(install_hooks=False)

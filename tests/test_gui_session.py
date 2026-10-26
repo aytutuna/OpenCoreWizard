@@ -52,6 +52,10 @@ class SessionPipelineTest(unittest.TestCase):
         utils.Utils.set_output_sink(None)
         self.restore()
 
+    def test_recommended_options_on_the_desktop_fixture(self):
+        self.session.load_report(os.path.join(FIXTURES, "desktop", "Report.json"))
+        self.assertEqual(self.session.recommended_options(25)["audio"], "2")
+
     def test_desktop_report_verdict_and_configuration(self):
         verdict = self.session.load_report(os.path.join(FIXTURES, "desktop", "Report.json"))
         self.assertIsNone(verdict["acpi"])
@@ -138,6 +142,15 @@ class SessionHelpersTest(unittest.TestCase):
         self.assertEqual([choice["darwin"] for choice in choices], list(range(17, 26)))
         self.assertEqual([choice["darwin"] for choice in choices if choice["oclp"]], [24, 25])
         self.assertEqual(session.default_macos(), 23)
+
+    def test_recommended_options_follow_the_root_patch_range(self):
+        session = session_module.Session()
+        self.assertEqual(session.recommended_options(25), {"audio": "2", "broadcom": "1", "whatevergreen": "yes"})
+        session.native_macos_version = ("17.0.0", "23.99.99")
+        session.ocl_patched_macos_version = ("25.99.99", "24.0.0")
+        session.suggested_macos_version = "23.99.99"
+        self.assertEqual(session.recommended_options(25)["audio"], "1")
+        self.assertEqual(session.recommended_options(23)["audio"], "2")
 
     def test_usb_map_disable_flag_reaches_the_build(self):
         session = session_module.Session()

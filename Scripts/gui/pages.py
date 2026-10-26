@@ -341,7 +341,7 @@ class OptionsPage(Page):
             ("2", "AppleALC + SimpleHDA (no audio root patch)"))),
         ("broadcom", "Broadcom Wi-Fi on macOS 14 and newer", (
             ("", "Use the recommended choice"),
-            ("1", "OCLP root patches (recommended)"),
+            ("1", "OCLP root patches"),
             ("2", "AppleBCMWLANCompanion (needs VT-d, unstable)"))),
         ("whatevergreen", "WhateverGreen on first boot (AMD GPU, macOS 26)", (
             ("", "Use the recommended choice"),
@@ -417,8 +417,14 @@ class OptionsPage(Page):
 
     def on_show(self):
         relevance = self.session.option_relevance(self.darwin())
+        recommended = self.session.recommended_options(self.darwin())
         for key, buttons in self.frames.items():
             applies = relevance.get(key)
+            if applies:
+                labels = dict(next(options for group, _, options in self.GROUPS if group == key))
+                buttons[0].configure(text="Use the recommended choice: " + labels[recommended[key]])
+            else:
+                buttons[0].configure(text="Use the recommended choice (not needed for this hardware)")
             for button in buttons:
                 button.state(["!disabled"] if applies else ["disabled"])
             self.set_label(self.hints[key], "applies to this build" if applies else "not used for this hardware", "green" if applies else "grey")

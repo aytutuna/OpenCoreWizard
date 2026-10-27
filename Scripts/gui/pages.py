@@ -841,8 +841,10 @@ class UsbWriterPage(Page):
         self.mode = tk.StringVar(value="format")
         modes = ttk.Frame(self.body)
         modes.grid(row=1, column=0, sticky="w", pady=(6, 4))
-        ttk.Radiobutton(modes, text="Format a USB drive and write the installer", value="format", variable=self.mode, command=self.update_mode).grid(row=0, column=0, sticky="w")
-        ttk.Radiobutton(modes, text="Copy the EFI to an existing USB drive", value="copy", variable=self.mode, command=self.update_mode).grid(row=1, column=0, sticky="w")
+        usage = decisions["usb_mode"]["options"]
+        for row, (value, text) in enumerate((("format", "Format a USB drive and write the installer"), ("copy", "Copy the EFI to an existing USB drive"))):
+            ttk.Radiobutton(modes, text=text, value=value, variable=self.mode, command=self.update_mode).grid(row=row * 2, column=0, sticky="w")
+            self.note(modes, usage[row][2], row * 2 + 1, tag="grey", wrap=720).grid_configure(padx=(24, 0))
 
         self.format_frame = ttk.LabelFrame(self.body, text="Format and write", padding=(10, 6))
         self.format_frame.grid(row=2, column=0, sticky="nsew")

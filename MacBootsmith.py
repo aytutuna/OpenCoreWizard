@@ -1132,7 +1132,7 @@ class OCPE:
                 print("")
                 print("Any other key to go back")
                 print("")
-                usb_option = self.u.request_input("Select an option: ").strip()
+                usb_option = self.u.request_input("Select how to write the USB drive: ").strip()
                 if usb_option == "1":
                     self.usb.create_installer(self.result_dir, os.path.join(self.result_dir, "com.apple.recovery.boot"), dry_run="--dry-run-usb" in sys.argv)
                     print("")

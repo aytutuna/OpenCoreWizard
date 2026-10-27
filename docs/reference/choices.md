@@ -258,6 +258,21 @@ Without a map, macOS guesses. Usually it boots, but some ports stay dead, sleep 
 
 Default: Automatic first. Map by plugging devices in if a port is dead or sleep fails.
 
+## Write a new installer or only update the EFI
+
+Asked at the prompt containing `how to write the USB drive`.
+
+A USB installer holds three things: the macOS recovery image, the EFI folder with OpenCore, and the post-install kit.
+
+The first time, the whole stick has to be prepared. After that only the EFI folder changes when you build again, so the stick does not need to be erased.
+
+| Answer | Means | Pick it when |
+|---|---|---|
+| 1 | format the drive and write the installer | The first time, or when the stick is new or holds something else. It erases the whole stick, copies all three things onto it and checks every file. Needs administrator rights. |
+| 2 | copy the EFI to an existing USB drive | After you build again, for example after saving a USB map, changing an option or making a DEBUG build. It erases nothing: it replaces the EFI folder and the post-install kit on a stick made with option 1 and keeps the recovery image. |
+
+Default: 1 the first time, 2 after every rebuild.
+
 ## Which drive becomes the installer
 
 Asked at the prompt containing `Enter the disk number to use`.

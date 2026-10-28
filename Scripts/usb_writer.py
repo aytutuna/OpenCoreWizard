@@ -114,37 +114,92 @@ class USBWriter:
             return "The identity of disk {} changed.".format(disk["number"])
         return None
 
-    def build_diskpart_script(self, disk_number, disk_size_mb, label="OPENCORE"):
+    def build_diskpart_script(self, disk_number, disk_size_mb, label="OPENCORE", partition_style=None):
         label = (label or "OPENCORE")[:11]
         if int(disk_size_mb) > self.max_fat32_mb:
             create = "create partition primary size={}".format(self.max_fat32_mb)
         else:
             create = "create partition primary"
+        lines = ["select disk {}".format(int(disk_number)), "clean"]
+        # on a stick that was GPT, convert gpt after clean fails with "not MBR formatted" and stops the
+        # script; without it create partition sets the stick up as MBR, which UEFI boots from as well
+        if str(partition_style).upper() != "GPT":
+            lines.append("convert gpt")
+        return "\n".join(lines + [create, "exit"]) + "\n"
+
+    def build_format_script(self, disk_number, partition_number, label="OPENCORE"):
+        # a run of its own: Windows adds the new partition's volume a moment after diskpart creates it, and a
+        # format in the same run failed with "There is no volume selected". Windows also mounts the volume
+        # straight away, and Explorer, its "format the disk" prompt or an antivirus can open it before the
+        # format locks it ("Cannot zero sectors ... Error code: 5"); override dismounts it first
         return "\n".join([
             "select disk {}".format(int(disk_number)),
-            "clean",
-            "convert gpt",
-            create,
-            "format fs=fat32 quick label={}".format(label),
+            "select partition {}".format(int(partition_number)),
+            "format fs=fat32 quick label={} override".format((label or "OPENCORE")[:11]),
             "assign",
             "exit"
         ]) + "\n"
 
-    def prepare_disk(self, disk, dry_run=False):
-        if not self._supported():
-            return None
-        size_mb = int(disk["size_bytes"] // (1024 * 1024))
-        script = self.build_diskpart_script(disk["number"], size_mb, "OPENCORE")
-        if dry_run:
-            print("Dry run, diskpart script that would be executed:")
-            print("")
-            print(script)
-            return (0, script)
+    def wait_for_volume(self, disk_number, timeout_s=20):
+        # the number of the stick's data partition once Windows lists a volume on it
+        command = ("$p = Get-Partition -DiskNumber {} | Where-Object Type -ne 'Reserved' | Sort-Object Size -Descending | Select-Object -First 1; "
+                   "if ($p -and ($p | Get-Volume -ErrorAction SilentlyContinue)) {{ $p.PartitionNumber }}").format(int(disk_number))
+        deadline = time.time() + timeout_s
+        while True:
+            out = self._powershell(command)
+            numbers = [line.strip() for line in out[0].splitlines() if line.strip().isdigit()]
+            if numbers:
+                return int(numbers[0])
+            if time.time() >= deadline:
+                return None
+            time.sleep(1)
+
+    def _diskpart(self, script):
         script_path = os.path.join(self.utils.get_temporary_dir(), "diskpart_script.txt")
         with open(script_path, "w") as f:
             f.write(script)
         out = self.r.run({"args": [self.diskpart_exe, "/s", script_path]})
         return (out[2], out[0] + out[1])
+
+    def _retry(self, disk, what, script_for, attempts, pause_s):
+        # script_for(attempt) builds each try from the stick as it is then: a failed run may have changed it
+        for attempt in range(1, attempts + 1):
+            if attempt > 1:
+                print(output.strip())
+                print("diskpart could not {}. Trying again in {} seconds ({} of {})...".format(what, pause_s, attempt, attempts))
+                time.sleep(pause_s)
+                problem = self.check_disk_unchanged(disk)
+                if problem:
+                    return (1, problem)
+            code, output = self._diskpart(script_for(attempt))
+            if code == 0:
+                return (0, output)
+        return (code or 1, output)
+
+    def prepare_disk(self, disk, dry_run=False, attempts=3, pause_s=5):
+        if not self._supported():
+            return None
+        number = disk["number"]
+        size_mb = int(disk["size_bytes"] // (1024 * 1024))
+        if dry_run:
+            script = self.build_diskpart_script(number, size_mb, "OPENCORE", disk.get("partition_style")) + self.build_format_script(number, 1)
+            print("Dry run, diskpart scripts that would be executed:")
+            print("")
+            print(script)
+            return (0, script)
+
+        def partition_script(attempt):
+            style = disk.get("partition_style") if attempt == 1 else (self.get_disk(number) or {}).get("PartitionStyle")
+            return self.build_diskpart_script(number, size_mb, "OPENCORE", style)
+
+        def format_script(attempt):
+            return self.build_format_script(number, self.wait_for_volume(number) or 1)
+
+        code, output = self._retry(disk, "set up the stick", partition_script, attempts, pause_s)
+        if code != 0:
+            return (code, output)
+        code, formatted = self._retry(disk, "format the stick", format_script, attempts, pause_s)
+        return (code, output + formatted)
 
     def wait_for_drive_letter(self, disk_number, timeout_s=20):
         if not self._supported():
@@ -257,24 +312,24 @@ class USBWriter:
             print("Dry run: a real run needs administrator rights.")
         elif not self.is_admin():
             print("\033[91mAdministrator rights are required. Close this window and start OpenCore Wizard as administrator.\033[0m")
-            return
+            return False
         if not os.path.isfile(os.path.join(efi_dir, "EFI", "OC", "config.plist")):
             print("\033[91mBuild the OpenCore EFI first.\033[0m")
-            return
+            return False
         has_recovery = bool(recovery_dir) and os.path.isfile(os.path.join(recovery_dir, "BaseSystem.dmg"))
         if not has_recovery:
             print("\033[1;93mNo BaseSystem.dmg found in the recovery folder. The USB will boot OpenCore but cannot install macOS.\033[0m")
             print("")
             if not self._confirm("Continue anyway? (y/N): "):
-                return
+                return False
             print("")
 
         disks = self.list_usb_disks()
         if disks is None:
-            return
+            return False
         if not disks:
             print("No USB disks found. Insert a USB drive and try again.")
-            return
+            return False
         print("{:<8}{:<36}{:>10}  {}".format("Disk", "Name", "Size", "Style"))
         for d in disks:
             print("{:<8}{:<36}{:>7.1f} GB  {}".format(d["number"], d["friendly_name"][:34], d["size_bytes"] / 1e9, d["partition_style"]))
@@ -283,10 +338,10 @@ class USBWriter:
         disk = next((d for d in disks if choice.isdecimal() and d["number"] == int(choice)), None)
         if not disk:
             print("Invalid disk number.")
-            return
+            return False
         if expected_disk is not None and (disk["size_bytes"] != expected_disk.get("size_bytes") or disk.get("identity", "") != expected_disk.get("identity", "")):
             print("[91mDisk {} is not the drive that was selected. Aborted, nothing was changed.[0m".format(disk["number"]))
-            return
+            return False
         print("")
         print("\033[91mWARNING: ALL DATA on disk {} will be erased.\033[0m".format(disk["number"]))
         print("  {} ({:.1f} GB)".format(disk["friendly_name"], disk["size_bytes"] / 1e9))
@@ -294,38 +349,38 @@ class USBWriter:
         if disk["size_bytes"] > self.large_disk_bytes:
             if not self._confirm("This looks like an external hard drive. Continue? (yes/No): "):
                 print("Aborted.")
-                return
+                return False
             print("")
         if self.utils.request_input("Type ERASE to continue: ").strip() != "ERASE":
             print("Aborted.")
-            return
+            return False
         print("")
 
         problem = self.check_disk_unchanged(disk)
         if problem:
             print("\033[91m{} Aborted, nothing was changed.\033[0m".format(problem))
-            return
+            return False
 
         result = self.prepare_disk(disk, dry_run=dry_run)
         if dry_run:
             print("Dry run finished, nothing was changed.")
-            return
+            return False
         if result[0] != 0:
             print("\033[91mdiskpart failed (code {}):\033[0m".format(result[0]))
             print(result[1])
             print("\033[91mDisk {} may now be blank or partly erased.\033[0m".format(disk["number"]))
-            return
+            return False
         drive = self.wait_for_drive_letter(disk["number"])
         if not drive:
             print("\033[91mThe new partition did not get a drive letter.\033[0m")
-            return
+            return False
         print("USB drive ready at {}".format(drive))
         ok, mismatches = self.copy_payload(drive, efi_dir, recovery_dir if has_recovery else None)
         print("")
         self._print_verification(ok, mismatches)
         if not ok:
             print("\033[91mDo not use this USB drive until the copy has been repeated successfully.\033[0m")
-            return
+            return False
         print("")
         print("On {} you now have:".format(drive))
         print("  - EFI (OpenCore)")
@@ -335,6 +390,7 @@ class USBWriter:
             print("  - PostInstall (post-install checklist, helper script and tools)")
         print("")
         print("Next: boot the target PC from this USB drive, then pick the recovery entry in the OpenCore picker.")
+        return True
 
     def copy_efi_to_existing(self, efi_dir):
         if not self._supported():
@@ -342,11 +398,11 @@ class USBWriter:
         print("")
         if not os.path.isfile(os.path.join(efi_dir, "EFI", "OC", "config.plist")):
             print("\033[91mBuild the OpenCore EFI first.\033[0m")
-            return
+            return False
         letter = self.utils.request_input("Enter the USB drive letter (for example E): ").strip().rstrip(":\\/").upper()
         if len(letter) != 1 or not letter.isalpha():
             print("Invalid drive letter.")
-            return
+            return False
         out = self._powershell("Get-Partition -DriveLetter {} | Get-Disk | Select-Object Number,BusType,IsBoot,IsSystem | ConvertTo-Json -Compress".format(letter))
         info = None
         if out[2] == 0 and out[0].strip():
@@ -360,10 +416,10 @@ class USBWriter:
             print("Drive {}: was not found.".format(letter))
             if out[2] != 0 and out[1].strip():
                 print(out[1].strip())
-            return
+            return False
         if str(info.get("BusType")).upper() != "USB" or info.get("IsBoot") or info.get("IsSystem"):
             print("Drive {}: is not an external USB drive (bus: {}).".format(letter, info.get("BusType")))
-            return
+            return False
         drive = "{}:".format(letter)
         existing = [name for name in ("EFI", self.postinstall_folder) if os.path.isdir(os.path.join(drive + "\\", name))]
         if self.postinstall_source(efi_dir):
@@ -375,9 +431,10 @@ class USBWriter:
         if replaced:
             if not self._confirm("{} will be replaced on {}. Continue? (y/N): ".format(", ".join(replaced), drive)):
                 print("Aborted.")
-                return
+                return False
         ok, mismatches = self.copy_payload(drive, efi_dir)
         print("")
         self._print_verification(ok, mismatches)
         if ok and self.postinstall_source(efi_dir):
             print("PostInstall was copied to {} as well.".format(drive))
+        return ok

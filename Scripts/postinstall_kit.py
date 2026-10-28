@@ -1,4 +1,5 @@
 from Scripts.datasets import codec_layouts
+from Scripts.datasets import firmware_keys
 from Scripts.datasets import os_data
 from Scripts.datasets import pci_data
 from Scripts.datasets import postinstall_tools
@@ -8,6 +9,7 @@ from Scripts import resource_fetcher
 from Scripts import utils
 import datetime
 import fnmatch
+import html
 import json
 import os
 import plistlib
@@ -22,7 +24,8 @@ MANIFEST_NAME = "manifest.json"
 CHECKLIST_NAME = "POST-INSTALL.md"
 COMMAND_NAME = "post-install.command"
 SMBIOS_NAME = "smbios.txt"
-GENERATED_FILES = (CHECKLIST_NAME, COMMAND_NAME, SMBIOS_NAME)
+GUIDE_NAME = "START HERE.html"
+GENERATED_FILES = (CHECKLIST_NAME, COMMAND_NAME, SMBIOS_NAME, GUIDE_NAME)
 PATCHES_NAME = "patches.json"
 PATCHES_VERSION = 1
 MACPATCH_FOLDER = "MacPatch"
@@ -30,6 +33,8 @@ MACPATCH_COMMANDS = ("Root Patch.command", "Revert Root Patch.command")
 MODES = ("full", "docs-only")
 
 APPLE_NVRAM_GUID = "7C436110-AB2A-4BBB-A880-FE41995C9F82"
+# the Kernel -> Patch entry config_prodigy adds while WhateverGreen is off
+AGDP_PATCH_COMMENT = "AGDP board-id patch (pikera) for first boot without WhateverGreen"
 LILU_NVRAM_GUID = "4D1FDA02-38C7-4A6A-9CC6-4BCCA8B30102"
 FIRMWARE_DIR = "/usr/local/share/firmware/wifi"
 USB_VOLUME = "/Volumes/OPENCORE/PostInstall"
@@ -224,6 +229,75 @@ def make_build_summary(hardware_report, config, smbios_model, macos_version, nee
         "boot_args": boot_args,
         "config_path": "EFI/OC/config.plist"
     }
+
+
+def html_page(title, lead, steps, problems=(), foot=None):
+    # a plain, self-contained page: numbered steps as (title, paragraphs); a list paragraph is a bullet list,
+    # a {"command": ...} paragraph a line to copy into Terminal
+    def text(value):
+        return html.escape(str(value), quote=True).encode("ascii", "xmlcharrefreplace").decode("ascii")
+
+    def block(paragraph):
+        if isinstance(paragraph, list):
+            return "<ul>" + "".join("<li>{}</li>".format(text(item)) for item in paragraph) + "</ul>"
+        if isinstance(paragraph, dict):
+            return ("<div class=\"command\"><code id=\"command\">{}</code>"
+                    "<button type=\"button\" onclick=\"copyCommand(this)\">Copy</button></div>").format(text(paragraph["command"]))
+        return "<p>{}</p>".format(text(paragraph))
+
+    sections = []
+    for number, (heading, paragraphs) in enumerate(steps, 1):
+        sections.append("<section><h2><span class=\"number\">{}</span>{}</h2>{}</section>".format(number, text(heading), "".join(block(item) for item in paragraphs)))
+    answers = "".join("<dt>{}</dt><dd>{}</dd>".format(text(question), text(answer)) for question, answer in problems)
+    return "\n".join([
+        "<!doctype html>",
+        "<html lang=\"en\">",
+        "<head>",
+        "<meta charset=\"utf-8\">",
+        "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">",
+        "<title>{}</title>".format(text(title)),
+        "<style>",
+        ":root { --text: #1d1d1f; --muted: #6e6e73; --back: #f5f5f7; --card: #ffffff; --accent: #0066cc; --line: #d2d2d7; }",
+        "@media (prefers-color-scheme: dark) { :root { --text: #f5f5f7; --muted: #a1a1a6; --back: #1d1d1f; --card: #2c2c2e; --accent: #4da3ff; --line: #424245; } }",
+        "body { margin: 0; background: var(--back); color: var(--text); font: 17px/1.5 -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif; }",
+        "main { max-width: 760px; margin: 0 auto; padding: 32px 16px 48px; }",
+        "h1 { font-size: 32px; margin: 0 0 4px; }",
+        ".lead { color: var(--muted); margin: 0 0 24px; }",
+        "section, .problems { background: var(--card); border-radius: 14px; padding: 18px 22px; margin: 0 0 16px; }",
+        "h2 { font-size: 21px; margin: 0 0 8px; display: flex; align-items: center; gap: 12px; }",
+        ".number { flex: none; width: 30px; height: 30px; border-radius: 50%; background: var(--accent); color: #fff; font-size: 16px; display: inline-flex; align-items: center; justify-content: center; }",
+        "p, ul { margin: 8px 0; }",
+        "li { margin: 4px 0; }",
+        ".command { display: flex; gap: 8px; align-items: center; background: var(--back); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin: 10px 0; }",
+        ".command code { flex: 1; font: 15px/1.4 ui-monospace, Menlo, Consolas, monospace; overflow-wrap: anywhere; }",
+        "button { font: inherit; font-size: 15px; padding: 6px 14px; border-radius: 8px; border: 0; background: var(--accent); color: #fff; cursor: pointer; }",
+        "dt { font-weight: 600; margin-top: 12px; }",
+        "dd { margin: 2px 0 0; }",
+        ".foot { color: var(--muted); font-size: 15px; }",
+        "</style>",
+        "</head>",
+        "<body>",
+        "<main>",
+        "<h1>{}</h1>".format(text(title)),
+        "<p class=\"lead\">{}</p>".format(text(lead)),
+        "".join(sections),
+        "<div class=\"problems\"><h2>If something does not work</h2><dl>{}</dl></div>".format(answers) if answers else "",
+        "<p class=\"foot\">{}</p>".format(text(foot)) if foot else "",
+        "</main>",
+        "<script>",
+        "function copyCommand(button) {",
+        "  var code = document.getElementById(\"command\");",
+        "  var done = function () { button.textContent = \"Copied\"; setTimeout(function () { button.textContent = \"Copy\"; }, 2000); };",
+        "  if (navigator.clipboard && window.isSecureContext) { navigator.clipboard.writeText(code.textContent).then(done); return; }",
+        "  var range = document.createRange(); range.selectNodeContents(code);",
+        "  var selection = window.getSelection(); selection.removeAllRanges(); selection.addRange(range);",
+        "  try { if (document.execCommand(\"copy\")) { done(); } } catch (error) { }",
+        "}",
+        "</script>",
+        "</body>",
+        "</html>",
+        ""
+    ])
 
 
 class PostInstallKit:
@@ -594,7 +668,7 @@ class PostInstallKit:
             "2. Copy the EFI folder from the USB drive to the Desktop as a backup. A USB drive made by this app mounts by itself (as OPENCORE); otherwise mount its EFI partition with MountEFI and unmount it afterwards. Keep only one EFI partition mounted at a time.",
             "3. Mount the internal macOS disk's EFI partition. Several diskXsY entries can belong to one disk; they share one EFI partition. A folder named APPLE there can be deleted.",
             "4. Copy the EFI folder onto it. If Windows shares this disk, keep EFI/Microsoft and copy only EFI/BOOT and EFI/OC.",
-            "5. Open EFI/OC/config.plist on the internal EFI partition with {} and set Misc -> Boot -> LauncherOption to {}. RequestBootVarRouting is already on in this build. Save.".format(propertree, launcher),
+            "5. Open EFI/OC/config.plist on the internal EFI partition with {} and set Misc -> Boot -> LauncherOption to {}, Timeout to 5 and HideAuxiliary to True (the USB stick waits in the menu and shows the installer; the installed system can start by itself). RequestBootVarRouting is already on in this build. Save.".format(propertree, launcher),
             "6. Shut down, remove the USB drive and boot. If the PC does not find OpenCore, pick the disk once in the firmware boot menu; OpenCore then registers its own boot entry."
         ]))
 
@@ -763,15 +837,107 @@ class PostInstallKit:
 
         return "\n".join(header + body) + "\n"
 
+    def guide_steps(self, summary):
+        # the plain-language steps of START HERE.html, as (title, paragraphs); a paragraph that is a list is a bullet list
+        keys = firmware_keys.for_pc([summary.get("motherboard")], summary.get("platform") == "Laptop")
+        command = "bash {}/{}".format(USB_VOLUME, COMMAND_NAME)
+        first_boot = summary.get("whatevergreen_first_boot")
+        steps = []
+
+        steps.append(("Check the basics", [
+            "Before changing anything, look at what already works. Nothing here can break.",
+            ["Moving a window around is smooth, and the screen is sharp at its normal size.",
+             "The internet works (Ethernet, or Wi-Fi if it shows up in the menu bar).",
+             "Sound plays from your speakers or headphones."],
+            "If something on this list does not work yet, carry on anyway. Some of it is fixed by the next step; the rest is under \"If something does not work\" at the end."
+        ]))
+
+        does = []
+        if first_boot:
+            does.append("Turns the graphics helper back on. It was left off so the installer could not crash. After this, the helper stops and asks you to restart from the USB stick once to test it; then run it again for the rest.")
+        does.append("Sets the sleep settings that make sleep and wake reliable.")
+        if summary.get("broadcom_companion"):
+            does.append("Installs the file your Broadcom Wi-Fi card needs.")
+        does.append("Copies OpenCore (the program that starts macOS on this PC) from the USB stick to the disk macOS is on, so the PC starts without the stick. It saves a copy of what was there before on your Desktop.")
+        does.append("Checks that this PC is ready for your Apple Account.")
+        steps.append(("Run the setup helper", [
+            "A small helper on the USB stick does the technical parts for you. Keep the USB stick plugged in.",
+            ["Open Terminal: press Command and Space together, type Terminal and press Return.",
+             "Copy this line, click into the Terminal window, paste it (Command and V) and press Return:"],
+            {"command": command},
+            ["The helper asks before each change. Type y for yes or n for no, then press Return.",
+             "When it asks for your password, type the password you use to log in to this Mac. Nothing appears while you type; that is normal."],
+            "What it does:",
+            does
+        ]))
+
+        steps.append(("Start without the USB stick", [
+            "Shut down, unplug the USB stick and turn the PC on. The OpenCore menu appears and macOS starts on its own after a few seconds.",
+            "If Windows starts instead, restart and press {} while the PC starts to open the boot menu. Choose the disk macOS is on (the entry that starts with UEFI). You only do this once: OpenCore then puts itself first.".format(keys["boot_menu"]),
+            "To start Windows later, choose it in the OpenCore menu.",
+            "Keep the USB stick. If the PC ever stops starting, plug it in and start from it like during the install; it still works."
+        ]))
+
+        if summary.get("needs_oclp"):
+            names = []
+            for entry in summary.get("root_patches") or []:
+                name = entry.get("name") or ROOT_PATCH_NAMES.get(entry.get("set"), entry.get("set"))
+                if name and name not in names:
+                    names.append(name)
+            steps.append(("Turn on the remaining parts", [
+                "macOS no longer includes drivers for some parts of this PC{}. A \"root patch\" puts them back. It is the most technical step, so do it last, with time to spare.".format(
+                    " ({})".format(", ".join(names)) if names else ""),
+                "Follow the section \"Root patches\" in {}, in this same folder. Redo it after every macOS update.".format(CHECKLIST_NAME)
+            ]))
+
+        account = [
+            "Sign in to iCloud and the App Store last, after the helper said \"Ready\" in its Apple Account check.",
+            "Use an Apple Account that has been used on an Apple device or has purchases. Brand-new accounts are often refused on a PC.",
+            "The file {} in this folder holds this PC's Mac identity. Keep it private and keep it as it is.".format(SMBIOS_NAME)
+        ]
+        steps.append(("Sign in with your Apple Account", account))
+
+        if summary.get("needs_oclp"):
+            updates = "Before installing a macOS update, read \"macOS updates\" in {}: the root patch has to be redone after every update.".format(CHECKLIST_NAME)
+        else:
+            updates = "Updates install from System Settings, General, Software Update, like on a Mac. Keep the USB stick in case an update stops the PC from starting."
+        steps.append(("Updates", [updates]))
+        return steps
+
+    def guide_problems(self, summary):
+        problems = [
+            ("The PC does not start macOS", "Plug in the USB stick and start from it, like during the install. Then run the helper again, or put the EFI backup from your Desktop back."),
+            ("A USB port does not work", "Start Windows and open OpenCore Wizard in Advanced mode. Map the ports on the USB mapping page, build again, choose \"Copy the EFI to an existing USB drive\" on the USB page, then run the helper here again.")
+        ]
+        if summary.get("audio"):
+            problems.append(("No sound", "Your sound chip has several possible settings. Section \"Audio\" in {} lists them and how to try them one at a time.".format(CHECKLIST_NAME)))
+        problems.append(("Something else", "Take a photo of the screen, or note the exact message. {} has the technical details for every step.".format(CHECKLIST_NAME)))
+        return problems
+
+    def render_guide(self, summary, status=None):
+        made_for = "Made by OpenCore Wizard for {} with {}.".format(summary.get("motherboard") or "this PC", summary.get("macos_name") or "macOS")
+        return html_page("After installing macOS", made_for + " Do these steps in order. Each takes a few minutes.",
+                         self.guide_steps(summary), self.guide_problems(summary),
+                         "For experts: {} in this folder has the technical details of every step.".format(CHECKLIST_NAME))
+
     def render_command(self, summary):
+        first_boot = summary.get("whatevergreen_first_boot")
+        launcher = "Short" if summary.get("insyde") else "Full"
         lines = [
             "#!/bin/bash",
-            "# Post-install helper for {} ({}).".format(summary.get("smbios_model") or "this build", summary.get("macos_name") or "macOS"),
-            "# Run it in Terminal with: bash post-install.command",
-            "# To double-click it instead, make it executable once: chmod +x post-install.command",
-            "# It asks before every action and never touches an EFI partition.",
+            "# Finishes the setup of {} ({}) once macOS is installed.".format(summary.get("smbios_model") or "this build", summary.get("macos_name") or "macOS"),
+            "# Run it in Terminal with: bash \"{}/{}\"".format(USB_VOLUME, COMMAND_NAME),
+            "# It asks before every change. The only partition it writes to is the EFI partition",
+            "# of the disk macOS runs from, after you confirm, and it saves the old EFI folder first.",
             "",
             "cd \"$(dirname \"$0\")\" || exit 1",
+            "KIT=\"$(pwd)\"",
+            "STICK=\"$(cd .. && pwd)\"",
+            "SOURCE=\"$STICK/EFI\"",
+            "CONFIG=\"$SOURCE/OC/config.plist\"",
+            "LAUNCHER=\"{}\"".format(launcher),
+            "# no ._ files on the FAT32 partitions",
+            "export COPYFILE_DISABLE=1",
             "",
             "confirm() {",
             "    local answer",
@@ -782,17 +948,37 @@ class PostInstallKit:
             "    return 1",
             "}",
             "",
+            "step() {",
+            "    echo \"\"",
+            "    echo \"== $1 ==\"",
+            "}",
+            "",
+            "field() {",
+            "    # one value from diskutil info, for example: field disk0s1 \"Mount Point\"",
+            "    # everything after the first colon, so a value with a colon in it stays whole",
+            "    diskutil info \"$1\" 2>/dev/null | awk -v key=\"$2\" '{name = $0; sub(/:.*/, \"\", name)} name ~ \"^ *\" key \"$\" {sub(/^[^:]*: */, \"\"); print; exit}' | sed 's/ *$//'",
+            "}",
+            "",
             "if [ \"$(uname -s)\" != \"Darwin\" ]; then",
-            "    echo \"Run this script on the installed macOS system.\"",
+            "    echo \"Run this in macOS on this PC, after macOS is installed.\"",
+            "    exit 1",
+            "fi",
+            "if [ ! -f \"$CONFIG\" ]; then",
+            "    echo \"The EFI folder was not found at $SOURCE.\"",
+            "    echo \"Run this script from the {} folder of the USB stick.\"".format(KIT_FOLDER),
             "    exit 1",
             "fi",
             "",
-            "echo \"Checklist: $(pwd)/{}\"".format(CHECKLIST_NAME),
-            "echo \"Work through it in order; this script only does the mechanical steps.\"",
-            "echo \"\"",
-            "",
-            "echo \"Sleep settings from the post-install guide:\""
+            "echo \"This finishes the setup of this PC. It asks before each change: type y for yes or n for no, then press Return.\"",
+            "echo \"What each step does is explained in $KIT/{}\"".format(GUIDE_NAME)
         ]
+        if first_boot:
+            lines.extend(self.render_graphics_step(first_boot))
+        lines.extend([
+            "",
+            "step \"Sleep settings\"",
+            "echo \"These settings from the post-install guide make sleep and wake reliable:\""
+        ])
         for line in PMSET_LINES:
             lines.append("echo \"  {}\"".format(line))
         lines.extend([
@@ -815,6 +1001,7 @@ class PostInstallKit:
             if not tool:
                 continue
             lines.extend([
+                "step \"Wi-Fi firmware\"",
                 "fw=\"{}/{}\"".format(TOOLS_FOLDER, tool["dest"]),
                 "if [ -f \"$fw\" ]; then",
                 "    actual=$(shasum -a 256 \"$fw\" | awk '{print $1}')",
@@ -831,11 +1018,165 @@ class PostInstallKit:
                 "echo \"\""
             ])
 
-        lines.append("echo \"Next: follow {} to move the EFI to the internal disk with MountEFI.\"".format(CHECKLIST_NAME))
+        lines.extend(self.render_move_step())
+        lines.extend(self.render_account_check())
+        lines.extend(["", "echo \"\""])
         if summary.get("needs_oclp") and macpatch_entries(summary):
-            lines.append("echo \"Root patches are separate: see the Root patches section, then run {}/{}/Root Patch.command.\"".format(TOOLS_FOLDER, MACPATCH_FOLDER))
-        lines.append("echo \"This script does not touch EFI partitions.\"")
+            lines.append("echo \"One step is left: the root patches with {}/{}/Root Patch.command. {} explains them.\"".format(TOOLS_FOLDER, MACPATCH_FOLDER, GUIDE_NAME))
+        elif summary.get("needs_oclp"):
+            lines.append("echo \"One step is left: the root patches. {} explains them.\"".format(GUIDE_NAME))
+        else:
+            lines.append("echo \"Finished. {} has the last checks.\"".format(GUIDE_NAME))
         return "\n".join(lines) + "\n"
+
+    def render_graphics_step(self, first_boot):
+        # WhateverGreen was left off for the installer; it goes back on in the stick's config, which is tested before the move
+        lines = [
+            "",
+            "kext_index() {",
+            "    local i=0 value",
+            "    while value=$(plutil -extract \"$1.$i.$2\" raw -o - \"$CONFIG\" 2>/dev/null); do",
+            "        if [ \"$value\" = \"$3\" ]; then",
+            "            echo \"$i\"",
+            "            return 0",
+            "        fi",
+            "        i=$((i + 1))",
+            "    done",
+            "    return 1",
+            "}",
+            "",
+            "step \"Graphics driver\"",
+            "weg=$(kext_index Kernel.Add BundlePath WhateverGreen.kext)",
+            "if [ -n \"$weg\" ] && [ \"$(plutil -extract \"Kernel.Add.$weg.Enabled\" raw -o - \"$CONFIG\" 2>/dev/null)\" = \"false\" ]; then",
+            "    echo \"WhateverGreen, the helper that makes the graphics card work fully, was left off so the installer would not crash.\"",
+            "    echo \"Turn it back on now, then start from the USB stick once to test it. The other steps come after that test.\"",
+            "    if confirm \"Turn the graphics helper back on?\"; then",
+            "        cp \"$CONFIG\" \"$SOURCE/OC/config-before-graphics.plist\"",
+            "        changed=0",
+            "        plutil -replace \"Kernel.Add.$weg.Enabled\" -bool YES \"$CONFIG\" || changed=1"
+        ]
+        if first_boot.get("agdp_patch"):
+            lines.extend([
+                "        patch=$(kext_index Kernel.Patch Comment \"{}\")".format(AGDP_PATCH_COMMENT),
+                "        if [ -n \"$patch\" ]; then",
+                "            plutil -remove \"Kernel.Patch.$patch\" \"$CONFIG\" || changed=1",
+                "        fi",
+                "        args=$(plutil -extract \"NVRAM.Add.{}.boot-args\" raw -o - \"$CONFIG\" 2>/dev/null)".format(APPLE_NVRAM_GUID),
+                "        case \" $args \" in",
+                "            *\" agdpmod=pikera \"*) ;;",
+                "            *) plutil -replace \"NVRAM.Add.{}.boot-args\" -string \"${{args:+$args }}agdpmod=pikera\" \"$CONFIG\" || changed=1 ;;".format(APPLE_NVRAM_GUID),
+                "        esac"
+            ])
+        lines.extend([
+            "        if [ \"$changed\" = 0 ] && plutil -lint \"$CONFIG\" >/dev/null; then",
+            "            echo \"Done. Restart the PC and start from the USB stick again, the same way as during the install.\"",
+            "            echo \"If macOS starts normally, run this script again for the remaining steps.\"",
+            "            echo \"If it does not start: on Windows, open the USB stick, go to EFI\\\\OC, delete config.plist and rename config-before-graphics.plist to config.plist.\"",
+            "        else",
+            "            cp \"$SOURCE/OC/config-before-graphics.plist\" \"$CONFIG\"",
+            "            echo \"The change did not work, so the settings were put back as they were.\"",
+            "        fi",
+            "        exit 0",
+            "    fi",
+            "    echo \"Skipped. The graphics card works without full acceleration until you turn it on.\"",
+            "else",
+            "    echo \"The graphics helper is on.\"",
+            "fi"
+        ])
+        return lines
+
+    def render_move_step(self):
+        return [
+            "",
+            "move_efi() {",
+            "    local mounted=0 mp need old free backup ok",
+            "    echo \"Your Mac password is needed for this. Nothing appears while you type it; that is normal.\"",
+            "    sudo -v || { echo \"No password given. Nothing was changed.\"; return 1; }",
+            "    mp=$(field \"$esp\" \"Mount Point\")",
+            "    if [ -z \"$mp\" ]; then",
+            "        sudo diskutil mount \"$esp\" >/dev/null || { echo \"Could not open the EFI partition ($esp). Nothing was changed.\"; return 1; }",
+            "        mounted=1",
+            "        mp=$(field \"$esp\" \"Mount Point\")",
+            "    fi",
+            "    if [ -z \"$mp\" ] || [ ! -d \"$mp\" ]; then",
+            "        echo \"Could not open the EFI partition ($esp). Nothing was changed.\"",
+            "        return 1",
+            "    fi",
+            "    need=$(du -sk \"$SOURCE/OC\" \"$SOURCE/BOOT\" | awk '{s += $1} END {print s + 0}')",
+            "    old=$(du -sk \"$mp/EFI/OC\" \"$mp/EFI/BOOT\" 2>/dev/null | awk '{s += $1} END {print s + 0}')",
+            "    free=$(df -k \"$mp\" | awk 'NR == 2 {print $4}')",
+            "    if [ $((free + old)) -lt $((need + 1024)) ]; then",
+            "        echo \"The EFI partition is too small: OpenCore needs $((need / 1024 + 1)) MB and $(((free + old) / 1024)) MB is free. Nothing was changed.\"",
+            "        echo \"Keep starting from the USB stick. {} (Move the EFI to the internal disk) explains the options.\"".format(CHECKLIST_NAME),
+            "        [ \"$mounted\" = 1 ] && sudo diskutil unmount \"$esp\" >/dev/null",
+            "        return 1",
+            "    fi",
+            "    if [ -d \"$mp/EFI/Microsoft\" ]; then",
+            "        echo \"Windows uses this EFI partition too. Its files stay as they are, so Windows keeps starting.\"",
+            "    fi",
+            "    if [ -d \"$mp/EFI\" ]; then",
+            "        backup=\"$HOME/Desktop/EFI backup $(date '+%Y-%m-%d %H.%M')\"",
+            "        if ! { sudo cp -R \"$mp/EFI\" \"$backup\" && sudo chown -R \"$(id -u)\" \"$backup\"; }; then",
+            "            echo \"Could not save a copy of the old EFI folder. Nothing was changed.\"",
+            "            [ \"$mounted\" = 1 ] && sudo diskutil unmount \"$esp\" >/dev/null",
+            "            return 1",
+            "        fi",
+            "        echo \"Saved a copy of the old EFI folder on the Desktop: $backup\"",
+            "    fi",
+            "    sudo mkdir -p \"$mp/EFI\" && sudo rm -rf \"$mp/EFI/OC\" \"$mp/EFI/BOOT\" && sudo cp -R \"$SOURCE/OC\" \"$SOURCE/BOOT\" \"$mp/EFI/\" \\",
+            "        && sudo rm -f \"$mp/EFI/OC/config-before-graphics.plist\" \\",
+            "        && sudo plutil -replace Misc.Boot.LauncherOption -string \"$LAUNCHER\" \"$mp/EFI/OC/config.plist\" \\",
+            "        && sudo plutil -replace Misc.Boot.Timeout -integer 5 \"$mp/EFI/OC/config.plist\" \\",
+            "        && sudo plutil -replace Misc.Boot.HideAuxiliary -bool YES \"$mp/EFI/OC/config.plist\" \\",
+            "        && plutil -lint \"$mp/EFI/OC/config.plist\" >/dev/null \\",
+            "        && diff -rq -x config.plist -x config-before-graphics.plist -x '._*' -x .DS_Store \"$SOURCE/OC\" \"$mp/EFI/OC\" >/dev/null \\",
+            "        && cmp -s \"$SOURCE/BOOT/BOOTx64.efi\" \"$mp/EFI/BOOT/BOOTx64.efi\"",
+            "    ok=$?",
+            "    [ \"$mounted\" = 1 ] && sudo diskutil unmount \"$esp\" >/dev/null",
+            "    if [ \"$ok\" = 0 ]; then",
+            "        echo \"Done: OpenCore is on the disk macOS runs from, and the copy matches the USB stick.\"",
+            "        echo \"Shut down, unplug the USB stick and turn the PC on. {} says what to do if Windows starts instead.\"".format(GUIDE_NAME),
+            "    else",
+            "        echo \"The copy did not finish. Keep starting from the USB stick. The old EFI folder is on the Desktop.\"",
+            "    fi",
+            "    return \"$ok\"",
+            "}",
+            "",
+            "step \"Start without the USB stick\"",
+            "echo \"This copies OpenCore from the USB stick to the disk macOS is installed on, so the PC starts macOS without the stick.\"",
+            "root=$(field / \"APFS Physical Store\")",
+            "[ -n \"$root\" ] || root=$(field / \"Device Identifier\")",
+            "disk=$(echo \"$root\" | sed -E 's/s[0-9]+$//')",
+            "stick=$(field \"$STICK\" \"Device Identifier\" | sed -E 's/s[0-9]+$//')",
+            "esp=$(diskutil list \"$disk\" 2>/dev/null | awk '$1 ~ /^[0-9]+:$/ && $2 == \"EFI\" {print $NF; exit}')",
+            "if [ -z \"$disk\" ] || [ -z \"$esp\" ]; then",
+            "    echo \"Could not find the EFI partition of the disk macOS runs from. Nothing was changed.\"",
+            "    echo \"{} (Move the EFI to the internal disk) has the steps to do it by hand.\"".format(CHECKLIST_NAME),
+            "elif [ \"$disk\" = \"$stick\" ]; then",
+            "    echo \"macOS seems to run from the USB stick itself, so there is nothing to copy. Nothing was changed.\"",
+            "else",
+            "    echo \"macOS runs from: $(field \"$disk\" \"Device / Media Name\") ($(field \"$disk\" \"Disk Size\" | sed 's/ (.*//')), EFI partition $esp\"",
+            "    if confirm \"Copy OpenCore to this disk?\"; then",
+            "        move_efi",
+            "    else",
+            "        echo \"Skipped. Keep starting from the USB stick until you do this.\"",
+            "    fi",
+            "fi"
+        ]
+
+    def render_account_check(self):
+        return [
+            "",
+            "step \"Apple Account check\"",
+            "en0=$(ioreg -rd1 -c IONetworkInterface 2>/dev/null | awk '/\\+-o/ {block = \"\"} {block = block $0 \"\\n\"} /^ *}$/ {if (block ~ /\"BSD Name\" = \"en0\"/) {if (block ~ /\"IOBuiltin\" = Yes/) print \"yes\"; else print \"no\"; exit}}')",
+            "if [ \"$en0\" = yes ]; then",
+            "    echo \"Ready: the network port en0 is marked as built-in, which Apple's services need.\"",
+            "elif [ \"$en0\" = no ]; then",
+            "    echo \"Not ready yet: en0 is not marked as built-in, so signing in may fail. See {} (Before signing in with an Apple Account).\"".format(CHECKLIST_NAME),
+            "else",
+            "    echo \"Not ready yet: there is no network port named en0, so signing in may fail. See {} (Before signing in with an Apple Account).\"".format(CHECKLIST_NAME),
+            "fi"
+        ]
 
     def copy_macpatch(self, dest_dir):
         source = os.path.join(app_paths.bundle_dir(), "postinstall", "macpatch")
@@ -902,7 +1243,10 @@ class PostInstallKit:
         if values is None:
             print("\033[1;93mWarning: could not read {}; {} has no values.\033[0m".format(config_path, SMBIOS_NAME))
         smbios_path = self.write_text(os.path.join(dest_dir, SMBIOS_NAME), self.render_smbios(values))
-        files = [checklist_path, command_path, smbios_path]
+
+        print("Writing {}...".format(GUIDE_NAME))
+        guide_path = self.write_text(os.path.join(dest_dir, GUIDE_NAME), self.render_guide(build_summary, status))
+        files = [checklist_path, command_path, smbios_path, guide_path]
 
         if build_summary.get("needs_oclp") and macpatch_entries(build_summary):
             print("Writing {} and copying MacPatch...".format(PATCHES_NAME))
@@ -919,5 +1263,6 @@ class PostInstallKit:
             "dest_dir": dest_dir,
             "mode": mode,
             "files": files,
+            "guide": guide_path,
             "tools": status
         }

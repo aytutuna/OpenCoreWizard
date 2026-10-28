@@ -173,8 +173,118 @@ class SessionHelpersTest(unittest.TestCase):
 
         session.ensure_ocpe = lambda: Ocpe()
         disk = {"number": 3, "size_bytes": 16, "identity": "A"}
-        session.write_installer(disk, "ERASE", dry_run=True)
+        self.assertFalse(session.write_installer(disk, "ERASE", dry_run=True)["written"])
         self.assertEqual(seen["expected_disk"], disk)
+
+    def usb_session(self, written=True):
+        session = session_module.Session()
+        calls = []
+
+        class Usb:
+            def create_installer(self, *args, **kwargs):
+                calls.append("write")
+                return written
+
+            def copy_efi_to_existing(self, *args, **kwargs):
+                calls.append("copy")
+                return written
+
+        class Ocpe:
+            usb = Usb()
+            result_dir = "Results"
+
+        def kit(mode):
+            calls.append("kit " + mode)
+            session.kit_result = {"dest_dir": "Results/PostInstall"}
+            session.kit_for = (session.build_serial, mode)
+            return session.kit_result
+
+        session.ensure_ocpe = lambda: Ocpe()
+        session.post_install_kit = kit
+        session.build_result = {"ocvalidate": "passed"}
+        session.build_serial = 1
+        return session, calls
+
+    def test_kit_is_made_before_the_stick_is_written(self):
+        session, calls = self.usb_session()
+        result = session.write_installer({"number": 3}, "ERASE", kit_mode="full")
+        self.assertEqual(calls, ["kit full", "write"])
+        self.assertTrue(result["written"])
+        self.assertTrue(session.usb_ready())
+        session.write_installer({"number": 3}, "ERASE", kit_mode="full")
+        self.assertEqual(calls, ["kit full", "write", "write"])
+
+    def test_dry_run_makes_no_kit_and_does_not_count(self):
+        session, calls = self.usb_session()
+        result = session.write_installer({"number": 3}, "ERASE", dry_run=True, kit_mode="full")
+        self.assertEqual(calls, ["write"])
+        self.assertFalse(result["written"])
+        self.assertFalse(session.usb_ready())
+
+    def test_failed_write_does_not_count(self):
+        session, calls = self.usb_session(written=False)
+        self.assertFalse(session.write_installer({"number": 3}, "ERASE", kit_mode="docs-only")["written"])
+        self.assertFalse(session.usb_ready())
+
+    def test_copy_counts_and_a_new_build_needs_a_new_write(self):
+        session, calls = self.usb_session()
+        self.assertTrue(session.copy_efi("E", kit_mode="docs-only")["written"])
+        self.assertEqual(calls, ["kit docs-only", "copy"])
+        self.assertTrue(session.usb_ready())
+        session.build_serial += 1
+        self.assertFalse(session.usb_ready())
+
+    def test_build_with_ocvalidate_errors_is_not_done(self):
+        session = session_module.Session()
+        self.assertFalse(session.build_ready())
+        session.build_result = {"ocvalidate": "errors"}
+        self.assertFalse(session.build_ready())
+        session.build_result = {"ocvalidate": "unavailable"}
+        self.assertTrue(session.build_ready())
+        session.reset_configuration()
+        self.assertIsNone(session.build_result)
+
+    def test_recovery_must_match_the_built_version(self):
+        session = session_module.Session()
+        session.macos_version = "25.0.0"
+        self.assertFalse(session.recovery_ready())
+        session.recovery_darwin = 24
+        self.assertFalse(session.recovery_ready())
+        session.recovery_darwin = session_module.darwin_major(25)
+        self.assertTrue(session.recovery_ready())
+
+    def test_usb_map_needs_a_saved_map_or_the_no_map_choice(self):
+        session = session_module.Session()
+        self.assertFalse(session.usb_map_ready())
+        session.usb_map_disabled = True
+        self.assertTrue(session.usb_map_ready())
+        session.usb_map_disabled = False
+        session.hardware_report = {"USB Controllers": {}}
+
+        class Ocpe:
+            source = {"path": "SysReport/USBMap.json"}
+
+            def select_usb_map_source(self, hardware, announce=True):
+                return self.source
+
+        session.ensure_ocpe = lambda: Ocpe()
+        self.assertTrue(session.usb_map_ready())
+        session.usb_dirty = True
+        self.assertFalse(session.usb_map_ready())
+
+    def test_firmware_keys_follow_the_maker_and_the_platform(self):
+        session = session_module.Session()
+        session.hardware_report = {"Motherboard": {"Name": "ASUSTEK ZENBOOK UX534FT_UX534FT", "Platform": "Laptop"}}
+        self.assertEqual(session.firmware_keys()["boot_menu"], "Esc")
+        session.hardware_report = {"Motherboard": {"Name": "PRIME Z490-A", "Platform": "Desktop"}}
+        session.preflight_info = {"firmware": {"machine": {"Manufacturer": "ASUSTeK COMPUTER INC."}}}
+        self.assertEqual(session.firmware_keys()["boot_menu"], "F8")
+        session.preflight_info = {"firmware": {"machine": {"Manufacturer": "Micro-Star International Co., Ltd."}}}
+        session.hardware_report = {"Motherboard": {"Name": "MAG B550", "Platform": "Desktop"}}
+        self.assertEqual(session.firmware_keys(), {"setup": "Delete", "boot_menu": "F11", "known": True})
+        session.preflight_info = None
+        session.hardware_report = {"Motherboard": {"Name": "Unknown", "Platform": "Desktop"}}
+        self.assertFalse(session.firmware_keys()["known"])
 
     def test_paths_are_under_the_app_folder(self):
         paths = session_module.Session().paths()
@@ -294,6 +404,57 @@ class ExpressTest(unittest.TestCase):
     def test_scans_when_no_report_is_given(self):
         self.session.express()
         self.assertEqual(self.calls[1], "scan_report")
+
+    def test_simple_window_runs_the_same_chain_in_two_steps(self):
+        result = self.session.check_pc()
+        self.assertEqual(self.calls, ["preflight", "scan_report", "load_report"])
+        self.assertEqual(result["preflight"], ["bitlocker"])
+        self.assertEqual(result["default"], 25)
+        self.assertEqual(self.ocpe.u.steps, [])
+        self.session.preflight_warnings = ["bitlocker"]
+        summary = self.session.prepare()
+        self.assertEqual(self.calls[3:], [("configure", 25, None), "usb_map", "build", ("recovery", "25.99.99"), ("kit", "full")])
+        self.assertEqual(self.ocpe.u.steps, list(session_module.PREPARE_STEPS) + ["done"])
+        self.assertEqual(self.defaults, [True, False])
+        self.assertEqual(summary["kit"], "Results/PostInstall")
+        self.assertEqual(summary["warnings"], ["bitlocker", session_module.USB_MAP_NOTE])
+
+    def test_prepare_needs_the_check_first(self):
+        with self.assertRaises(session_module.StageError):
+            self.session.prepare()
+
+    def test_prepare_takes_the_chosen_version(self):
+        self.session.check_pc()
+        self.session.prepare(24)
+        self.assertIn(("configure", 24, None), self.calls)
+
+    def test_prepare_answers_yes_no_questions_itself(self):
+        # a yes/no question used to open a dialog in the middle of Get the files ready and wait there
+        script = ScriptedPrompts({})
+        prompts = broker.PromptBroker(script.post)
+        self.session.preset_hook = prompts.set_presets
+        self.session.defaults_hook = prompts.set_accept_defaults
+        answers = []
+        configure = self.session.configure
+
+        def configure_with_its_own_presets(darwin, options):
+            with self.session.answering({"Please enter the macOS version": str(darwin)}):
+                answers.append(prompts("Continue with OpenCore Legacy Patcher? (yes/No): ", ""))
+                configure(darwin, options)
+
+        def build():
+            answers.append(prompts("Do you want to force load this kext on the unsupported macOS version? (yes/No): ", ""))
+            answers.append(prompts("Would you like to scan for WiFi profiles? (Yes/no): ", ""))
+            return {"ocvalidate": "passed", "result_dir": "Results", "usb_map": None, "bios": {"disable": [], "enable": [], "notes": []}, "preflight": []}
+
+        self.session.configure = configure_with_its_own_presets
+        self.session.build = build
+        self.session.check_pc()
+        self.session.prepare()
+        self.assertEqual(answers, ["yes", "no", "no"])
+        self.assertEqual(script.prompts, [])
+        self.assertEqual(prompts.presets, [])
+        self.assertFalse(prompts.accept_defaults)
 
     def test_stops_when_nothing_is_installable(self):
         self.native = None

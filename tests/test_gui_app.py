@@ -52,6 +52,7 @@ class TkTestCase(unittest.TestCase):
 
     def make_app(self, **kwargs):
         kwargs.setdefault("autostart", False)
+        kwargs.setdefault("mode", "advanced")
         app = self.app_module.OpenCoreWizardApp(**kwargs)
         app.withdraw()
         self.addCleanup(self.destroy, app)
@@ -80,7 +81,7 @@ class AppSmokeTest(TkTestCase):
         app = self.make_app(install_hooks=False)
         self.assertEqual(len(app.pages), len(pages.PAGE_CLASSES))
         self.assertEqual([page.title for page in app.pages],
-                         ["Welcome", "Hardware", "macOS version", "Options", "USB mapping", "Build", "Recovery", "USB", "Post-install", "Finish"])
+                         ["Welcome", "Hardware", "macOS version", "Options", "USB mapping", "Build", "Recovery", "USB", "Finish"])
         for index in range(len(app.pages)):
             app.show_page(index)
             app.update_idletasks()
@@ -95,8 +96,71 @@ class AppSmokeTest(TkTestCase):
         app = self.make_app(install_hooks=False)
         app.show_page(1)
         self.assertTrue(app.next_button.instate(["disabled"]))
+        self.assertEqual(app.next_hint.cget("text"), "Scan this PC or open a hardware report.")
+        app.session.preflight_ran = True
         app.show_page(0)
         self.assertFalse(app.next_button.instate(["disabled"]))
+        self.assertEqual(app.next_hint.cget("text"), "")
+
+    def test_steps_cannot_be_skipped(self):
+        from Scripts.gui import pages
+        app = self.make_app(install_hooks=False)
+        self.assertEqual(app.reachable(), 0)
+        app.jump(3)
+        self.assertEqual(app.index, 0)
+        self.assertTrue(app.next_button.instate(["disabled"]))
+        self.assertIn("preflight", app.next_hint.cget("text"))
+        self.assertEqual(str(app.step_labels[3].cget("style")), "LockedStep.TLabel")
+        app.session.preflight_ran = True
+        app.session.hardware_report = {"CPU": {}}
+        app.update_nav()
+        self.assertEqual(app.reachable(), 2)
+        app.jump(1)
+        self.assertEqual(app.index, 1)
+        app.jump(5)
+        self.assertEqual(app.index, 1)
+
+    def test_build_with_ocvalidate_errors_blocks_next(self):
+        from Scripts.gui import pages
+        app = self.make_app(install_hooks=False)
+        app.show_page(app.pages.index(app.page_by_class(pages.BuildPage)))
+        self.assertTrue(app.next_button.instate(["disabled"]))
+        self.assertEqual(app.next_hint.cget("text"), "Press Build EFI.")
+        app.session.build_result = {"ocvalidate": "errors"}
+        app.update_nav()
+        self.assertTrue(app.next_button.instate(["disabled"]))
+        self.assertIn("ocvalidate found errors", app.next_hint.cget("text"))
+        app.session.build_result = {"ocvalidate": "passed"}
+        app.update_nav()
+        self.assertFalse(app.next_button.instate(["disabled"]))
+
+    def test_usb_page_needs_a_real_write(self):
+        from Scripts.gui import pages
+        app = self.make_app(install_hooks=False)
+        app.show_page(app.pages.index(app.page_by_class(pages.UsbWriterPage)))
+        self.assertTrue(app.next_button.instate(["disabled"]))
+        self.assertIn("a dry run does not count", app.next_hint.cget("text"))
+        app.session.build_result = {"ocvalidate": "passed"}
+        app.session.build_serial = 1
+        app.session.usb_written_for = 1
+        app.update_nav()
+        self.assertFalse(app.next_button.instate(["disabled"]))
+
+    @unittest.skipUnless(os.name == "nt", "Windows only")
+    def test_window_asks_for_administrator_rights_at_start(self):
+        module = self.app_module
+        with mock.patch.object(module.winsupport, "is_admin", return_value=False), \
+                mock.patch.object(module.winsupport, "relaunch_as_admin", return_value=True) as relaunch, \
+                mock.patch.object(module, "OpenCoreWizardApp") as window:
+            self.assertEqual(module.main([]), 0)
+            relaunch.assert_called_once_with(["--elevated"])
+            window.assert_not_called()
+        with mock.patch.object(module.winsupport, "is_admin", return_value=False), \
+                mock.patch.object(module.winsupport, "relaunch_as_admin") as relaunch, \
+                mock.patch.object(module, "OpenCoreWizardApp") as window:
+            module.main(["--elevated"])
+            relaunch.assert_not_called()
+            window.assert_called_once()
 
     def test_theme_is_vista_or_clam_when_available(self):
         app = self.make_app(install_hooks=False)
@@ -121,6 +185,8 @@ class AppSmokeTest(TkTestCase):
         self.assertTrue(self.pump(app, lambda: bool(app.dialogs)), "the prompt dialog did not open")
         dialog = app.dialogs[0]
         self.assertEqual(dialog.request.choices, [("1. First", "1"), ("2. Second", "2")])
+        # the buttons say it all, so the tool output stays hidden
+        self.assertEqual(dialog.output.grid_info(), {})
         dialog.submit("2")
         self.assertTrue(self.pump(app, lambda: bool(results)), "the stage did not finish")
         self.assertEqual(results, ["2"])
@@ -212,7 +278,7 @@ class ExpressPageTest(TkTestCase):
                     "    - VT-d: The firmware publishes no VT-d table (DMAR), so VT-d is off.\n"
                     "  Check these yourself in the BIOS (the app could not tell from Windows):\n"
                     "    - Fast Boot: should be Off. Windows cannot see this setting.\n"
-                    "  - The app cannot read every BIOS setting from Windows, so look at the 'check yourself' items in the BIOS too. If a setting you were asked to change is still wrong, OpenCore may not start. The Post-install page and POST-INSTALL.md in the kit explain each setting.")
+                    "  - The app cannot read every BIOS setting from Windows, so look at the 'check yourself' items in the BIOS too. If a setting you were asked to change is still wrong, OpenCore may not start. The BIOS settings tab on the Finish page and POST-INSTALL.md in the kit explain each setting.")
         self.assertIn(expected, notes)
         self.assertNotIn("Turn off:", notes)
         self.assertLess(notes.index("Fast Boot"), notes.index("No USB map"))
@@ -228,10 +294,10 @@ class ExpressPageTest(TkTestCase):
         self.assertEqual(pages_module.bios_lines(bios, self.BIOS_STATE)[:-1], ["Change in the BIOS: Secure Boot (should be Off).", "Nothing to do: VT-d.", "Check yourself in the BIOS: Fast Boot (should be Off)."])
         self.assertEqual(pages_module.bios_lines(bios)[0], "Turn off: Secure Boot, VT-d, Fast Boot.")
 
-    def test_post_install_page_marks_each_setting(self):
+    def test_finish_page_marks_each_bios_setting(self):
         from Scripts.gui import pages as pages_module
         app = self.make_app(install_hooks=False)
-        page = app.page_by_class(pages_module.PostInstallPage)
+        page = app.page_by_class(pages_module.FinishPage)
         page.show_bios({"disable": ["Secure Boot", "VT-d", "Fast Boot"], "enable": [], "notes": ["n"]}, self.BIOS_STATE)
         text = page.bios["disable"].get("1.0", "end")
         self.assertIn("- Change in the BIOS - Secure Boot: should be Off. Windows reports it is on.", text)
@@ -307,6 +373,170 @@ class ExpressPageTest(TkTestCase):
         self.assertTrue(app.step_labels[0].cget("text").startswith(">"))
 
 
+class SimpleModeTest(TkTestCase):
+    LAPTOP = {"Motherboard": {"Name": "ASUSTEK ZENBOOK UX534FT_UX534FT", "Platform": "Laptop"},
+              "GPU": {"NVIDIA GeForce GTX 1650": {"Device Type": "Discrete GPU"}, "Intel(R) UHD Graphics 620": {"Device Type": "Integrated GPU"}}}
+    ROWS = [
+        {"section": "CPU", "name": "Intel Core i7-10510U", "status": "supported"},
+        {"section": "GPU", "name": "NVIDIA GeForce GTX 1650", "status": "unsupported"},
+        {"section": "GPU", "name": "Intel(R) UHD Graphics 620", "status": "supported"},
+        {"section": "Network", "name": "Intel(R) Wireless-AC 9560", "status": "unchecked"}
+    ]
+
+    def simple(self):
+        app = self.make_app(install_hooks=False, mode="easy")
+        session = app.session
+        session.native_macos_version = ("17.0.0", "24.99.99")
+        session.suggested_macos_version = "24.99.99"
+        return app
+
+    def test_opens_with_five_plain_steps_and_no_log(self):
+        app = self.make_app(install_hooks=False, mode="easy")
+        self.assertEqual([page.title for page in app.pages], ["Check this PC", "Get the files", "USB stick", "BIOS", "Install macOS"])
+        self.assertFalse(app.log_visible)
+        self.assertNotIn(str(app.log_frame), [str(pane) for pane in app.panes.panes()])
+        self.assertEqual(app.glossary_button.grid_info(), {})
+        self.assertTrue(app.next_button.instate(["disabled"]))
+        self.assertEqual(app.next_hint.cget("text"), "Press Check this PC.")
+        app.toggle_log()
+        self.assertIn(str(app.log_frame), [str(pane) for pane in app.panes.panes()])
+        self.assertEqual(app.details_button.cget("text"), "Hide details")
+
+    def test_check_page_says_it_in_plain_words(self):
+        from Scripts.gui import easy
+        app = self.simple()
+        app.session.hardware_report = self.LAPTOP
+        page = app.page_by_class(easy.CheckPage)
+        page.show({"rows": self.ROWS, "preflight": ["Suspend BitLocker first."], "warnings": []})
+        text = page.result.get("1.0", "end")
+        self.assertIn("Yes. This PC can run macOS Sequoia 15.", text)
+        self.assertIn("Graphics: Intel(R) UHD Graphics 620", text)
+        self.assertIn("macOS switches it off and uses the Intel(R) UHD Graphics 620 for the screen", text)
+        self.assertNotIn("Wireless", text)
+        self.assertIn("Suspend BitLocker first.", text)
+        self.assertFalse(app.next_button.instate(["disabled"]))
+
+    def test_check_page_explains_why_not(self):
+        from Scripts.gui import easy
+        from Scripts.gui.session import UnsupportedHardware
+        app = self.simple()
+        page = app.page_by_class(easy.CheckPage)
+        self.assertTrue(page.failed(UnsupportedHardware("Nothing can be installed: macOS does not support RTX 5070 Ti."), ""))
+        text = page.result.get("1.0", "end")
+        self.assertIn("This PC cannot run macOS.", text)
+        self.assertIn("MacOS does not support RTX 5070 Ti.", text)
+        app.session.hardware_report = None
+        app.update_nav()
+        self.assertEqual(app.next_hint.cget("text"), "macOS cannot run on this PC.")
+
+    def test_usb_page_needs_a_stick_the_tick_and_a_real_write(self):
+        from Scripts.gui import easy
+        app = self.simple()
+        page = app.page_by_class(easy.UsbPage)
+        with mock.patch.object(easy.winsupport, "is_admin", return_value=True):
+            app.show_page(app.pages.index(page))
+            page.show_disks({"disks": [{"number": 2, "friendly_name": "Lexar USB Flash Drive", "size_bytes": 16 * 1000 ** 3, "partition_style": "MBR"}]})
+            self.assertEqual(page.choice.get(), 2)
+            self.assertTrue(page.write_button.instate(["disabled"]))
+            self.assertEqual(page.hint(), "Tick the box, then press Make the USB stick.")
+            page.agree.set(True)
+            page.update_state()
+            self.assertFalse(page.write_button.instate(["disabled"]))
+            self.assertFalse(page.complete())
+            app.session.build_result = {"ocvalidate": "passed"}
+            app.session.build_serial = app.session.usb_written_for = 1
+            page.finished({"written": True})
+            self.assertIn("The USB stick is ready.", page.result.get("1.0", "end"))
+            self.assertTrue(page.complete())
+        with mock.patch.object(easy.winsupport, "is_admin", return_value=False):
+            page.update_state()
+            self.assertTrue(page.write_button.instate(["disabled"]))
+            self.assertEqual(page.hint(), "Restart with administrator rights first.")
+
+    def test_failed_write_keeps_the_tick_and_shows_why(self):
+        from Scripts.gui import easy
+        app = self.simple()
+        page = app.page_by_class(easy.UsbPage)
+        stages = []
+        output = "Running diskpart...\nDiskPart has encountered an error: The parameter is incorrect.\nAborted.\n"
+        with mock.patch.object(easy.winsupport, "is_admin", return_value=True), \
+                mock.patch.object(easy.messagebox, "askyesno", return_value=True), \
+                mock.patch.object(app, "run_stage", side_effect=lambda label, func, **kwargs: stages.append((label, kwargs))), \
+                mock.patch.object(app, "stage_text", return_value=output):
+            app.show_page(app.pages.index(page))
+            page.show_disks({"disks": [{"number": 2, "friendly_name": "Lexar USB Flash Drive", "size_bytes": 16 * 1000 ** 3, "partition_style": "MBR"}]})
+            page.agree.set(True)
+            page.update_state()
+            page.write_button.invoke()
+            self.assertEqual([label for label, _ in stages], ["Making the USB stick"])
+            stages[0][1]["on_done"]({"written": False, "dry_run": False, "kit": None})
+            self.assertTrue(page.agree.get())
+            self.assertFalse(page.write_button.instate(["disabled"]))
+            self.assertEqual(app.next_hint.cget("text"), "The last try did not work. Press Make the USB stick to try again.")
+            text = page.result.get("1.0", "end")
+            self.assertIn("The USB stick could not be made.", text)
+            self.assertIn("DiskPart has encountered an error: The parameter is incorrect.", text)
+            stages[0][1]["on_error"](RuntimeError("Could not list the USB disks."), "")
+            self.assertIn("Could not list the USB disks.", page.result.get("1.0", "end"))
+
+    def test_details_are_kept_in_a_file(self):
+        import tempfile
+        path = os.path.join(tempfile.mkdtemp(), "details.log")
+        app = self.make_app(install_hooks=False, mode="easy", details_path=path)
+        app.append_log("diskpart said \033[91mno\033[0m\n")
+        app.destroy()
+        with open(path, encoding="utf-8") as handle:
+            self.assertEqual(handle.read(), "diskpart said no\n")
+
+    def test_bios_page_lists_what_to_change_and_needs_the_tick(self):
+        from Scripts.gui import easy
+        app = self.simple()
+        app.session.hardware_report = self.LAPTOP
+        app.session.preflight_warnings = ["Suspend BitLocker or save your recovery key before changing TPM or Secure Boot settings."]
+        app.session.build_result = {"ocvalidate": "passed", "bios": {"disable": ["Secure Boot", "Fast Boot", "VT-d"], "enable": []}, "bios_state": ExpressPageTest.BIOS_STATE}
+        page = app.page_by_class(easy.BiosPage)
+        app.show_page(app.pages.index(page))
+        text = page.text.get("1.0", "end")
+        self.assertIn("First: save your BitLocker recovery key.", text)
+        self.assertIn("press F2 again and again", text)
+        self.assertLess(text.index("Change these"), text.index("Secure Boot: Off"))
+        self.assertLess(text.index("Check these too"), text.index("Fast Boot: Off"))
+        self.assertIn("Already right", text)
+        self.assertFalse(page.complete())
+        page.confirmed.set(True)
+        page.confirm()
+        self.assertTrue(page.complete())
+
+    def test_install_steps_name_the_boot_key_and_the_stick(self):
+        from Scripts.gui import easy
+        app = self.simple()
+        app.session.hardware_report = self.LAPTOP
+        app.session.macos_version = "24.0.0"
+        app.session.usb_disk = {"friendly_name": "Lexar USB Flash Drive"}
+        steps, problems = easy.install_steps(app.session)
+        text = " ".join(line for _, paragraphs in steps for line in paragraphs)
+        self.assertIn("press Esc again and again", text)
+        self.assertIn("\"UEFI: Lexar USB Flash Drive\"", text)
+        self.assertIn("Reinstall macOS Sequoia 15", text)
+        self.assertIn("START HERE.html", text)
+
+    def test_switching_modes_keeps_the_work(self):
+        from Scripts.gui import pages as pages_module
+        app = self.simple()
+        app.session.preflight_ran = True
+        app.session.hardware_report = self.LAPTOP
+        app.update_nav()
+        app.set_mode("advanced")
+        self.assertEqual(app.mode, "advanced")
+        self.assertEqual(len(app.pages), len(pages_module.PAGE_CLASSES))
+        # Welcome, Hardware and the suggested macOS version are done, so it opens at Options
+        self.assertIsInstance(app.pages[app.index], pages_module.OptionsPage)
+        self.assertEqual(app.mode_button.cget("text"), "Simple mode")
+        app.set_mode("easy")
+        self.assertEqual(app.index, 1)
+        self.assertEqual(app.pages[0].title, "Check this PC")
+
+
 class UsbMapPageTest(TkTestCase):
     def test_automatic_map_fills_the_table(self):
         import json
@@ -333,7 +563,7 @@ class SelfTestFlagTest(TkTestCase):
         env = dict(os.environ, PYTHONIOENCODING="utf-8")
         result = subprocess.run([sys.executable, script, "--self-test"], capture_output=True, text=True, encoding="utf-8", env=env, timeout=120)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("Self-test: visited 10 pages", result.stdout)
+        self.assertIn("Self-test: visited 14 pages", result.stdout)
 
 
 class LauncherFilesTest(unittest.TestCase):

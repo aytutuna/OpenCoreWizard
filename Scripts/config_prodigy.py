@@ -850,6 +850,11 @@ class ConfigProdigy:
         config["Misc"]["Boot"]["LauncherOption"] = "Disabled"
         config["Misc"]["Boot"]["LauncherPath"] = "Default"
         config["Misc"]["Boot"]["PickerMode"] = "Builtin"
+        # OpenCore counts the installer on the stick (com.apple.recovery.boot) as an auxiliary entry: hidden, the
+        # picker showed only Windows and started it after the timeout, as if the stick did nothing. The menu waits
+        # instead; the post-install helper sets a timeout once OpenCore is on the internal disk
+        config["Misc"]["Boot"]["HideAuxiliary"] = False
+        config["Misc"]["Boot"]["Timeout"] = 0
         config["Misc"]["Debug"]["AppleDebug"] = config["Misc"]["Debug"]["ApplePanic"] = False
         config["Misc"]["Debug"]["DisableWatchDog"] = True
         config["Misc"]["Entries"] = []

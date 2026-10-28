@@ -74,12 +74,12 @@ def relaunch_arguments():
     return interpreter, [launcher]
 
 
-def relaunch_as_admin():
+def relaunch_as_admin(extra=()):
     if os.name != "nt":
         return False
     import ctypes
     executable, arguments = relaunch_arguments()
-    parameters = subprocess.list2cmdline(arguments)
+    parameters = subprocess.list2cmdline(arguments + list(extra))
     result = ctypes.windll.shell32.ShellExecuteW(None, "runas", executable, parameters, app_paths.app_dir(), 1)
     return int(result) > 32
 

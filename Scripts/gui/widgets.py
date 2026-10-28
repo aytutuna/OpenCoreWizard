@@ -99,6 +99,15 @@ def bold_font(root):
     return font
 
 
+def sized_font(root, delta=0, bold=False):
+    try:
+        font = tkfont.Font(root=root, name="TkDefaultFont", exists=True).copy()
+    except tk.TclError:
+        return ("TkDefaultFont", 9 + delta, "bold" if bold else "normal")
+    font.configure(size=abs(int(font.cget("size"))) + delta, weight="bold" if bold else "normal")
+    return font
+
+
 def heading_font(root, delta=4):
     try:
         font = tkfont.Font(root=root, name="TkDefaultFont", exists=True).copy()

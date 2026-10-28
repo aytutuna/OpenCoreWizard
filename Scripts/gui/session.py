@@ -8,6 +8,7 @@ from Scripts import app_paths
 from Scripts import usb_mapper
 from Scripts import utils
 from Scripts.datasets import codec_layouts
+from Scripts.datasets import firmware_keys
 from Scripts.datasets import os_data
 from Scripts.datasets import pci_data
 from Scripts.datasets import recovery_boards
@@ -16,9 +17,19 @@ MAIN_MODULE_NAME = "opencorewizard_main"
 MAIN_SCRIPT = "OpenCoreWizard.py"
 VERDICT_SECTIONS = ("CPU", "GPU", "Sound", "Biometric", "Network", "Storage Controllers", "Bluetooth", "SD Controller")
 EXPRESS_TITLE = "Build everything"
-EXPRESS_STEPS = ("Windows preflight", "Hardware scan", "Configuration", "USB map", "EFI build", "macOS recovery", "Post-install kit")
+PREPARE_TITLE = "Getting the files ready"
+PREPARE_STEPS = ("Configuration", "USB map", "EFI build", "macOS recovery", "Post-install kit")
+EXPRESS_STEPS = ("Windows preflight", "Hardware scan") + PREPARE_STEPS
 # audio stays unset so the prompt's own default applies; whatevergreen only matters when its prompt appears
 EXPRESS_OPTIONS = {"audio": None, "broadcom": "1", "whatevergreen": "yes", "debug": False}
+# the simple window has no place to explain a yes/no question, so it gives the safe answer itself; the
+# version it passes on was picked on the page, labelled when it needs OpenCore Legacy Patcher
+PLAIN_ANSWERS = {
+    "Continue with OpenCore Legacy Patcher": "yes",
+    "Do you want to force load": "no",
+    "Build EFI for UEFI": "yes",
+    "Would you like to scan for WiFi profiles": "no",
+}
 USB_MAP_NOTE = "USB ports not mapped: run USB mapping and rebuild for best results."
 USB_DIRTY_NOTE = "USB page has an unsaved selection; save it or press Automatic map"
 
@@ -47,6 +58,15 @@ def load_main_module():
         sys.modules.pop(MAIN_MODULE_NAME, None)
         raise
     return module
+
+
+def darwin_major(version):
+    if version is None or str(version).strip() == "":
+        return None
+    try:
+        return int(str(version).split(".")[0])
+    except ValueError:
+        return None
 
 
 def macos_name(version):
@@ -119,18 +139,27 @@ class Session:
         self.preset_hook = preset_hook or utils.Utils.set_presets
         self.defaults_hook = defaults_hook or utils.Utils.set_accept_defaults
         self.ocpe_factory = ocpe_factory
+        self.standing_answers = {}
         self.ocpe = None
         self.preflight_info = None
         self.preflight_warnings = []
         self.preflight_error = None
+        self.preflight_ran = False
         self.options = {"audio": None, "broadcom": "1", "whatevergreen": "yes", "debug": False}
         self.usb_history = None
         self.usb_dirty = False
         self.usb_map_disabled = False
         self.usb_auto = True
         self.build_result = None
+        # counts the builds, so a recovery, kit or USB write can tell whether it belongs to the newest one
+        self.build_serial = 0
         self.recovery_path = None
+        self.recovery_darwin = None
         self.kit_result = None
+        self.kit_for = None
+        self.usb_written_for = None
+        self.usb_disk = None
+        self.bios_confirmed = False
         self.log_report = None
         self.reset_hardware()
 
@@ -151,14 +180,16 @@ class Session:
         self.needs_oclp = False
         self.smbios_model = None
         self.configured = False
+        # the EFI in Results was built from the previous configuration
+        self.build_result = None
 
     @contextlib.contextmanager
     def answering(self, mapping):
-        self.preset_hook(mapping)
+        self.preset_hook(dict(self.standing_answers, **mapping))
         try:
             yield
         finally:
-            self.preset_hook({})
+            self.preset_hook(dict(self.standing_answers))
 
     def ensure_ocpe(self):
         if self.ocpe is None:
@@ -194,6 +225,7 @@ class Session:
             self.preflight_error = str(e)
         self.preflight_info = info
         self.preflight_warnings = list(warnings or [])
+        self.preflight_ran = True
         return {"info": info, "warnings": self.preflight_warnings, "error": self.preflight_error, "admin": ocpe.pf.is_admin()}
 
     def scan_report(self):
@@ -400,7 +432,11 @@ class Session:
         if not os.path.exists(config_file):
             raise StageError("The build did not produce {}.".format(config_file))
         self.build_result = self.collect_results(is_valid)
+        self.build_serial += 1
         return self.build_result
+
+    def build_ready(self):
+        return bool(self.build_result) and self.build_result["ocvalidate"] != "errors"
 
     def bios_requirements(self):
         if not self.hardware_report or not self.customized_hardware or self.ocpe is None:
@@ -411,6 +447,14 @@ class Session:
         if not bios:
             return None
         return self.ocpe.bios_checklist.state(bios, self.preflight_info, self.hardware_report)
+
+    def firmware_keys(self):
+        report = self.hardware_report or {}
+        machine = ((self.preflight_info or {}).get("firmware") or {}).get("machine") or {}
+        names = [machine.get(key) for key in ("Manufacturer", "BoardManufacturer", "Model")]
+        names.append((report.get("Motherboard") or {}).get("Name"))
+        laptop = (report.get("Motherboard") or {}).get("Platform") == "Laptop"
+        return firmware_keys.for_pc(names, laptop)
 
     def collect_results(self, is_valid):
         ocpe = self.ocpe
@@ -447,7 +491,11 @@ class Session:
         if not path:
             raise StageError("The macOS recovery download failed. The log shows why.")
         self.recovery_path = path
+        self.recovery_darwin = darwin_major(darwin)
         return path
+
+    def recovery_ready(self):
+        return self.recovery_darwin is not None and self.recovery_darwin == darwin_major(self.macos_version)
 
     def post_install_kit(self, mode):
         ocpe = self.ensure_ocpe()
@@ -461,73 +509,115 @@ class Session:
                 checklist = handle.read()
         bios = self.bios_requirements()
         self.kit_result = dict(result, checklist=checklist, bios=bios, bios_state=self.bios_state(bios))
+        self.kit_for = (self.build_serial, mode)
         return self.kit_result
+
+    def ensure_kit(self, mode):
+        # the kit is made right before the stick is written, so the write copies it
+        if self.kit_for != (self.build_serial, mode):
+            self.post_install_kit(mode)
+        return self.kit_result
+
+    def check_hardware(self, report_path=None, acpi_dir=None):
+        # scan or load, and stop with the devices that rule macOS out
+        ocpe = self.ensure_ocpe()
+        try:
+            verdict = self.load_report(report_path, acpi_dir) if report_path else self.scan_report()
+        except UnsupportedHardware as e:
+            blocked = unsupported_devices(getattr(ocpe.c, "hardware_report", None))
+            if blocked:
+                raise UnsupportedHardware("Nothing can be installed: macOS does not support {}.".format(", ".join(blocked)), e.details)
+            raise
+        if not self.native_macos_version or self.default_macos() is None:
+            blocked = unsupported_devices(self.hardware_report)
+            raise UnsupportedHardware("Nothing can be installed: macOS does not support {}.".format(", ".join(blocked) or "this hardware"))
+        return verdict
+
+    def check_pc(self):
+        # the first step of the simple window: preflight and scan, no choices
+        warnings = list(self.preflight()["warnings"])
+        verdict = self.check_hardware()
+        return dict(verdict, preflight=warnings, default=self.default_macos())
+
+    def chain_steps(self, steps, kit_mode, recovery):
+        auto_usb = self.usb_auto and not self.usb_map_disabled
+        return [step for step in steps if (recovery or step != "macOS recovery") and (kit_mode or step != "Post-install kit") and (auto_usb or step != "USB map")]
 
     def express(self, report_path=None, acpi_dir=None, kit_mode="full", recovery=True):
         ocpe = self.ensure_ocpe()
-        auto_usb = self.usb_auto and not self.usb_map_disabled
-        steps = [step for step in EXPRESS_STEPS if (recovery or step != "macOS recovery") and (kit_mode or step != "Post-install kit") and (auto_usb or step != "USB map")]
-
-        def step(name):
-            ocpe.u.progress_bar(EXPRESS_TITLE, steps, steps.index(name))
-
+        steps = self.chain_steps(EXPRESS_STEPS, kit_mode, recovery)
         self.build_result = None
         utils.Utils.decisions = []
         self.defaults_hook(True)
         try:
-            step("Windows preflight")
+            ocpe.u.progress_bar(EXPRESS_TITLE, steps, steps.index("Windows preflight"))
             warnings = list(self.preflight()["warnings"])
-
-            step("Hardware scan")
-            try:
-                verdict = self.load_report(report_path, acpi_dir) if report_path else self.scan_report()
-            except UnsupportedHardware as e:
-                blocked = unsupported_devices(getattr(ocpe.c, "hardware_report", None))
-                if blocked:
-                    raise UnsupportedHardware("Nothing can be installed: macOS does not support {}.".format(", ".join(blocked)), e.details)
-                raise
-            darwin = self.default_macos()
-            if not self.native_macos_version or darwin is None:
-                blocked = unsupported_devices(self.hardware_report)
-                raise UnsupportedHardware("Nothing can be installed: macOS does not support {}.".format(", ".join(blocked) or "this hardware"))
-            warnings += verdict["warnings"]
-
-            step("Configuration")
-            self.configure(darwin, dict(EXPRESS_OPTIONS))
-
-            usb_report = None
-            if auto_usb:
-                step("USB map")
-                usb_report = self.express_usb_map()
-
-            step("EFI build")
-            result = self.build()
-            warnings += result["preflight"]
-            if usb_report and usb_report.get("warning"):
-                warnings.append(usb_report["warning"])
-            if not result["usb_map"]:
-                if usb_report and not usb_report["possible"] and not usb_report.get("warning"):
-                    warnings.append("Automatic USB map not possible: {}".format(usb_report["reason"]))
-                warnings.append(USB_MAP_NOTE)
-
-            recovery_path = None
-            if recovery and result["ocvalidate"] == "errors":
-                warnings.append("Recovery download skipped: ocvalidate reported errors, so the EFI needs fixing first.")
-            elif recovery:
-                step("macOS recovery")
-                recovery_path = self.recovery(self.macos_version)
-
-            kit = None
-            if kit_mode:
-                step("Post-install kit")
-                kit = self.post_install_kit(kit_mode)
-            ocpe.u.progress_bar(EXPRESS_TITLE, steps, len(steps), done=True)
+            ocpe.u.progress_bar(EXPRESS_TITLE, steps, steps.index("Hardware scan"))
+            warnings += self.check_hardware(report_path, acpi_dir)["warnings"]
+            return self.build_chain(EXPRESS_TITLE, steps, self.default_macos(), kit_mode, recovery, warnings)
         finally:
             self.defaults_hook(False)
+
+    def prepare(self, darwin=None, kit_mode="full", recovery=True):
+        # the second step of the simple window: everything from the configuration to the kit
+        if not self.hardware_report:
+            raise StageError("Check this PC first.")
+        ocpe = self.ensure_ocpe()
+        steps = self.chain_steps(PREPARE_STEPS, kit_mode, recovery)
+        self.build_result = None
+        utils.Utils.decisions = []
+        self.defaults_hook(True)
+        self.standing_answers = dict(PLAIN_ANSWERS)
+        try:
+            warnings = list(self.preflight_warnings) + list(self.validation["warnings"])
+            with self.answering({}):
+                return self.build_chain(PREPARE_TITLE, steps, darwin or self.default_macos(), kit_mode, recovery, warnings)
+        finally:
+            self.standing_answers = {}
+            self.preset_hook({})
+            self.defaults_hook(False)
+
+    def build_chain(self, title, steps, darwin, kit_mode, recovery, warnings):
+        ocpe = self.ocpe
+
+        def step(name):
+            ocpe.u.progress_bar(title, steps, steps.index(name))
+
+        step("Configuration")
+        self.configure(darwin, dict(EXPRESS_OPTIONS))
+
+        usb_report = None
+        if "USB map" in steps:
+            step("USB map")
+            usb_report = self.express_usb_map()
+
+        step("EFI build")
+        result = self.build()
+        warnings += result["preflight"]
+        if usb_report and usb_report.get("warning"):
+            warnings.append(usb_report["warning"])
+        if not result["usb_map"]:
+            if usb_report and not usb_report["possible"] and not usb_report.get("warning"):
+                warnings.append("Automatic USB map not possible: {}".format(usb_report["reason"]))
+            warnings.append(USB_MAP_NOTE)
+
+        recovery_path = None
+        if recovery and result["ocvalidate"] == "errors":
+            warnings.append("Recovery download skipped: ocvalidate reported errors, so the EFI needs fixing first.")
+        elif recovery:
+            step("macOS recovery")
+            recovery_path = self.recovery(self.macos_version)
+
+        kit = None
+        if kit_mode:
+            step("Post-install kit")
+            kit = self.post_install_kit(kit_mode)
+        ocpe.u.progress_bar(title, steps, len(steps), done=True)
 
         return {
             "macos_name": macos_name(self.macos_version),
             "macos_version": self.macos_version,
+            "needs_oclp": self.needs_oclp,
             "smbios": self.smbios_model,
             "ocvalidate": result["ocvalidate"],
             "result_dir": result["result_dir"],
@@ -548,18 +638,41 @@ class Session:
             raise StageError("Could not list the USB disks. The log shows why.")
         return {"disks": disks, "admin": bool(ocpe.usb.is_admin())}
 
-    def write_installer(self, disk, erase_text, dry_run=False):
+    def write_installer(self, disk, erase_text, dry_run=False, kit_mode=None):
         ocpe = self.ensure_ocpe()
+        kit = None
+        if kit_mode and not dry_run:
+            kit = self.ensure_kit(kit_mode)
         presets = {"Enter the disk number to use": str(disk["number"]), "Type ERASE to continue": erase_text}
         with self.answering(presets):
-            ocpe.usb.create_installer(ocpe.result_dir, os.path.join(ocpe.result_dir, "com.apple.recovery.boot"), dry_run=dry_run, expected_disk=disk)
-        return True
+            written = ocpe.usb.create_installer(ocpe.result_dir, os.path.join(ocpe.result_dir, "com.apple.recovery.boot"), dry_run=dry_run, expected_disk=disk)
+        written = bool(written) and not dry_run
+        if written:
+            self.usb_written_for = self.build_serial
+            self.usb_disk = disk
+        return {"written": written, "dry_run": dry_run, "kit": kit}
 
-    def copy_efi(self, letter):
+    def copy_efi(self, letter, kit_mode=None):
         ocpe = self.ensure_ocpe()
+        kit = self.ensure_kit(kit_mode) if kit_mode else None
         with self.answering({"Enter the USB drive letter": str(letter)}):
-            ocpe.usb.copy_efi_to_existing(ocpe.result_dir)
-        return True
+            written = bool(ocpe.usb.copy_efi_to_existing(ocpe.result_dir))
+        if written:
+            self.usb_written_for = self.build_serial
+        return {"written": written, "dry_run": False, "kit": kit}
+
+    def usb_ready(self):
+        return self.build_ready() and self.usb_written_for == self.build_serial
+
+    def usb_map_ready(self):
+        if self.usb_map_disabled:
+            return True
+        if self.usb_dirty or not self.hardware_report:
+            return False
+        try:
+            return bool(self.ensure_ocpe().select_usb_map_source(self.customized_hardware or self.hardware_report, announce=False))
+        except Exception:
+            return False
 
     def usb_enumerate(self):
         ocpe = self.ensure_ocpe()

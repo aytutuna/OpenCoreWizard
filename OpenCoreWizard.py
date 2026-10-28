@@ -654,8 +654,8 @@ class OCPE:
     def post_install_notes(self):
         return [
             "The macOS installer only copies macOS to the internal disk. The part that starts macOS (OpenCore, the EFI folder this app built) is still only on the USB stick. So for now leave the stick plugged in and pick it in the BIOS boot menu every time you start the PC.",
-            "Once macOS runs from the stick, copy the EFI folder to the internal disk's EFI partition (a small hidden start-up area every disk has). Back up the stick's EFI folder to the Desktop first (the stick shows up as OPENCORE), then mount the internal one with MountEFI from the kit's PostInstall folder (made on the Post-install page or with menu option 9 in the terminal). POST-INSTALL.md lists the steps.",
-            "Then, in the copy you just made on the internal disk, open the settings file EFI/OC/config.plist with the ProperTree tool from the kit. Find the setting Misc -> Boot -> LauncherOption. It is Disabled so testing from the stick never changes the boot order; change it to Full and save. On the next start OpenCore adds itself to the BIOS boot menu, so the PC starts macOS without the stick. If the BIOS screen shows the name Insyde (common on laptops), use Short instead of Full."
+            "Once macOS runs from the stick, open START HERE.html in the stick's PostInstall folder (the stick shows up as OPENCORE). Its main step is one line in Terminal that runs the kit's helper: it copies OpenCore to the EFI partition of the internal disk (a small hidden start-up area every disk has), saves the old EFI folder on the Desktop first, and sets LauncherOption so the PC starts macOS without the stick.",
+            "To do it by hand instead, POST-INSTALL.md in the same folder has the steps: MountEFI to reach the internal EFI partition, then Misc -> Boot -> LauncherOption set to Full in config.plist (Short when the BIOS screen shows the name Insyde, common on laptops)."
         ]
 
     def before_using_efi(self, org_hardware_report, hardware_report):

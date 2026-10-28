@@ -7,6 +7,8 @@ import os
 import plistlib
 import re
 import shutil
+import subprocess
+import sys
 import tempfile
 import types
 import unittest
@@ -254,15 +256,210 @@ class CommandScriptTest(unittest.TestCase):
         self.assertTrue(script.startswith("#!/bin/bash\n"))
         self.assertIn("if confirm \"Apply these pmset settings now?\"", script)
         self.assertNotIn("firmware/wifi", script)
-        self.assertNotIn("diskutil", script)
-        self.assertNotIn("/Volumes/EFI", script)
+        self.assertNotIn("WhateverGreen", script)
 
     def test_firmware_copy_only_with_companion(self):
         script = self.kit.render_command(summary(bcmc=True))
         firmware = next(tool for tool in postinstall_tools.tools if tool["dest"].startswith("brcmfmac4350"))
         self.assertIn(firmware["sha256"], script)
         self.assertIn("elif confirm \"Copy $fw to /usr/local/share/firmware/wifi", script)
-        self.assertEqual(script.count("confirm \""), 2)
+        self.assertEqual(script.count("confirm \""), 3)
+
+    def test_efi_move_is_confirmed_backed_up_and_keeps_windows(self):
+        script = self.kit.render_command(summary())
+        self.assertIn("if confirm \"Copy OpenCore to this disk?\"; then", script)
+        self.assertIn("LAUNCHER=\"Full\"", script)
+        self.assertIn("plutil -replace Misc.Boot.LauncherOption -string \"$LAUNCHER\"", script)
+        self.assertLess(script.index("EFI backup"), script.index("sudo cp -R \"$SOURCE/OC\" \"$SOURCE/BOOT\""))
+        self.assertIn("sudo rm -rf \"$mp/EFI/OC\" \"$mp/EFI/BOOT\"", script)
+        self.assertNotIn("rm -rf \"$mp/EFI\"", script)
+        self.assertIn("[ \"$disk\" = \"$stick\" ]", script)
+        self.assertIn("LAUNCHER=\"Short\"", self.kit.render_command(summary(vendor="Insyde Corp.")))
+
+    def test_graphics_step_only_when_whatevergreen_was_left_off(self):
+        script = self.kit.render_command(summary(whatevergreen_first_boot={"agdp_patch": False}))
+        self.assertIn("plutil -replace \"Kernel.Add.$weg.Enabled\" -bool YES", script)
+        self.assertNotIn("agdpmod=pikera", script)
+        self.assertLess(script.index("step \"Graphics driver\""), script.index("step \"Start without the USB stick\""))
+        script = self.kit.render_command(summary(whatevergreen_first_boot={"agdp_patch": True}))
+        self.assertIn(postinstall_kit.AGDP_PATCH_COMMENT, script)
+        self.assertIn("agdpmod=pikera", script)
+
+
+class GuideTest(unittest.TestCase):
+    def setUp(self):
+        self.kit = postinstall_kit.PostInstallKit(fetcher=FailingFetcher())
+
+    def titles(self, data):
+        return [title for title, _ in self.kit.guide_steps(data)]
+
+    def test_steps_follow_the_build(self):
+        self.assertEqual(self.titles(summary()), ["Check the basics", "Run the setup helper", "Start without the USB stick", "Sign in with your Apple Account", "Updates"])
+        self.assertIn("Turn on the remaining parts", self.titles(summary(needs_oclp=True)))
+        helper = dict(self.kit.guide_steps(summary(whatevergreen_first_boot={"agdp_patch": False})))["Run the setup helper"]
+        self.assertTrue(any("graphics helper" in item for item in helper[-1]))
+
+    def test_page_is_plain_ascii_html_with_the_command(self):
+        page = self.kit.render_guide(summary(needs_oclp=True, bcmc=True, whatevergreen_first_boot={"agdp_patch": True}))
+        self.assertTrue(page.isascii())
+        self.assertTrue(page.startswith("<!doctype html>"))
+        self.assertIn("bash /Volumes/OPENCORE/PostInstall/post-install.command", page)
+        self.assertIn("Z490 AORUS ELITE", page)
+        self.assertIn("press F12 while the PC starts", page)
+
+    def test_boot_menu_key_follows_the_maker(self):
+        data = summary()
+        data["motherboard"], data["platform"] = "ASUSTEK ZENBOOK UX534FT_UX534FT", "Laptop"
+        steps = dict(self.kit.guide_steps(data))
+        self.assertIn("press Esc while the PC starts", steps["Start without the USB stick"][1])
+
+
+def find_bash():
+    if os.name == "nt":
+        # only Git for Windows' bash: the System32 one is WSL and would not see this temp folder
+        path = os.path.join(os.environ.get("ProgramFiles", r"C:\Program Files"), "Git", "bin", "bash.exe")
+        return path if os.path.isfile(path) else None
+    return shutil.which("bash")
+
+
+FAKE_MAC = r'''#!/bin/bash
+# builds a fake macOS around the helper: a USB stick, an EFI partition with Windows on it, and stand-ins for
+# diskutil, plutil, ioreg, sudo and uname that answer like macOS does
+T="$1"; PY="$2"; HELPER="$3"
+STICK="$T/Volumes/OPENCORE"; ESP="$T/esp"; BIN="$T/bin"
+mkdir -p "$STICK/EFI/OC/Kexts/Lilu.kext" "$STICK/EFI/BOOT" "$STICK/PostInstall" "$ESP/EFI/Microsoft/Boot" "$ESP/EFI/BOOT" "$BIN" "$T/home/Desktop"
+echo opencore > "$STICK/EFI/OC/OpenCore.efi"
+echo lilu > "$STICK/EFI/OC/Kexts/Lilu.kext/Info.plist"
+echo bootx64-opencore > "$STICK/EFI/BOOT/BOOTx64.efi"
+echo bootmgfw > "$ESP/EFI/Microsoft/Boot/bootmgfw.efi"
+echo bootx64-windows > "$ESP/EFI/BOOT/BOOTx64.efi"
+cp "$HELPER" "$STICK/PostInstall/post-install.command"
+printf '#!/bin/bash\necho Darwin\n' > "$BIN/uname"
+printf '#!/bin/bash\n[ "$1" = "-v" ] && exit 0\nexec "$@"\n' > "$BIN/sudo"
+printf '#!/bin/bash\nexit 0\n' > "$BIN/chown"
+printf '#!/bin/bash\nexec "%s" "%s" "$@"\n' "$PY" "$T/plutil.py" > "$BIN/plutil"
+cat > "$BIN/ioreg" <<'EOF'
+#!/bin/bash
+printf '+-o en1  <class IO80211Interface>\n  {\n    "BSD Name" = "en1"\n    "IOBuiltin" = No\n  }\n'
+printf '+-o en0  <class IOEthernetInterface>\n  {\n    "IOBuiltin" = Yes\n    "BSD Name" = "en0"\n  }\n'
+EOF
+cat > "$BIN/diskutil" <<EOF
+#!/bin/bash
+FLAG="$T/esp.mounted"
+case "\$1 \$2" in
+  "info /") printf '   Device Identifier:         disk3s1s1\n   APFS Physical Store:       disk0s2\n' ;;
+  "info disk0") printf '   Device / Media Name:       Samsung SSD 970 EVO 500GB\n   Disk Size:                 500.1 GB (500107862016 Bytes) (exactly 976773168 512-Byte-Units)\n' ;;
+  "info disk0s1") if [ -f "\$FLAG" ]; then printf '   Mount Point:               $ESP\n'; else printf '   Mounted:                   No\n'; fi ;;
+  "list disk0") printf '   0:      GUID_partition_scheme                        *500.1 GB   disk0\n   1:                        EFI EFI                     209.7 MB   disk0s1\n   2:                 Apple_APFS Container disk3         499.9 GB   disk0s2\n' ;;
+  "mount disk0s1") touch "\$FLAG" ;;
+  "unmount disk0s1") rm -f "\$FLAG" ;;
+  info*) case "\$2" in *OPENCORE*) printf '   Device Identifier:         disk2s1\n' ;; *) exit 1 ;; esac ;;
+  *) exit 1 ;;
+esac
+EOF
+chmod +x "$BIN"/*
+'''
+
+FAKE_PLUTIL = r'''import plistlib, sys
+args = sys.argv[1:]
+if args[0] == "-lint":
+    plistlib.load(open(args[1], "rb"))
+    sys.exit(0)
+path = args[-1]
+root = plistlib.load(open(path, "rb"))
+parts = args[1].split(".")
+try:
+    parent = root
+    for part in parts[:-1]:
+        parent = parent[int(part)] if isinstance(parent, list) else parent[part]
+    last = int(parts[-1]) if isinstance(parent, list) else parts[-1]
+    if args[0] == "-extract":
+        value = parent[last]
+        print(("true" if value else "false") if isinstance(value, bool) else value)
+        sys.exit(0)
+    if args[0] == "-remove":
+        del parent[last]
+    else:
+        parent[last] = args[3] == "YES" if args[2] == "-bool" else int(args[3]) if args[2] == "-integer" else args[3]
+except (KeyError, IndexError, ValueError):
+    sys.exit(1)
+plistlib.dump(root, open(path, "wb"))
+'''
+
+
+@unittest.skipUnless(find_bash(), "needs bash")
+class HelperRunTest(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.temp, True)
+        self.root = self.temp.replace("\\", "/")
+        kit = postinstall_kit.PostInstallKit(fetcher=FailingFetcher())
+        helper = os.path.join(self.temp, "helper.command")
+        with open(helper, "w", encoding="utf-8", newline="\n") as handle:
+            handle.write(kit.render_command(summary(whatevergreen_first_boot={"agdp_patch": True})))
+        with open(os.path.join(self.temp, "plutil.py"), "w", encoding="utf-8") as handle:
+            handle.write(FAKE_PLUTIL)
+        with open(os.path.join(self.temp, "fake_mac.sh"), "w", encoding="utf-8", newline="\n") as handle:
+            handle.write(FAKE_MAC)
+        self.stick_config = os.path.join(self.temp, "Volumes", "OPENCORE", "EFI", "OC", "config.plist")
+        self.bash([self.root + "/fake_mac.sh", self.root, sys.executable.replace("\\", "/"), self.root + "/helper.command"])
+        with open(self.stick_config, "wb") as handle:
+            plistlib.dump({
+                "Kernel": {"Add": [{"BundlePath": "Lilu.kext", "Enabled": True}, {"BundlePath": "WhateverGreen.kext", "Enabled": False}],
+                           "Patch": [{"Comment": "other"}, {"Comment": postinstall_kit.AGDP_PATCH_COMMENT}]},
+                "NVRAM": {"Add": {APPLE_GUID: {"boot-args": "keepsyms=1"}}},
+                "Misc": {"Boot": {"LauncherOption": "Disabled"}}
+            }, handle)
+
+    def bash(self, args, answers=""):
+        env = dict(os.environ, HOME=os.path.join(self.temp, "home"), FAKE_BIN=self.root + "/bin")
+        # Git for Windows' bash puts its own folders first in PATH, so the stand-ins go in front from inside bash
+        prefix = 'PATH="$(cygpath -u "$FAKE_BIN" 2>/dev/null || echo "$FAKE_BIN"):$PATH" exec bash "$@"'
+        # bytes, so Windows does not turn the answers' newlines into CRLF
+        result = subprocess.run([find_bash(), "-c", prefix, "bash"] + args, input=answers.encode(), capture_output=True, env=env, timeout=120)
+        output = result.stdout.decode("utf-8", "replace")
+        self.assertEqual(result.returncode, 0, output + result.stderr.decode("utf-8", "replace"))
+        return output
+
+    def run_helper(self, answers):
+        return self.bash([self.root + "/Volumes/OPENCORE/PostInstall/post-install.command"], answers)
+
+    def test_graphics_first_then_the_move(self):
+        output = self.run_helper("y\n")
+        self.assertIn("Restart the PC and start from the USB stick again", output)
+        self.assertNotIn("Start without the USB stick", output)
+        with open(self.stick_config, "rb") as handle:
+            config = plistlib.load(handle)
+        self.assertTrue(config["Kernel"]["Add"][1]["Enabled"])
+        self.assertEqual([patch["Comment"] for patch in config["Kernel"]["Patch"]], ["other"])
+        self.assertEqual(config["NVRAM"]["Add"][APPLE_GUID]["boot-args"], "keepsyms=1 agdpmod=pikera")
+
+        output = self.run_helper("n\ny\n")
+        self.assertIn("The graphics helper is on.", output)
+        self.assertIn("macOS runs from: Samsung SSD 970 EVO 500GB (500.1 GB), EFI partition disk0s1", output)
+        self.assertIn("Done: OpenCore is on the disk macOS runs from", output)
+        self.assertIn("Ready: the network port en0 is marked as built-in", output)
+        esp = os.path.join(self.temp, "esp", "EFI")
+        with open(os.path.join(esp, "BOOT", "BOOTx64.efi")) as handle:
+            self.assertEqual(handle.read().strip(), "bootx64-opencore")
+        self.assertTrue(os.path.isfile(os.path.join(esp, "Microsoft", "Boot", "bootmgfw.efi")))
+        self.assertFalse(os.path.exists(os.path.join(esp, "OC", "config-before-graphics.plist")))
+        with open(os.path.join(esp, "OC", "config.plist"), "rb") as handle:
+            boot = plistlib.load(handle)["Misc"]["Boot"]
+        self.assertEqual(boot["LauncherOption"], "Full")
+        self.assertEqual(boot["Timeout"], 5)
+        self.assertIs(boot["HideAuxiliary"], True)
+        backups = os.listdir(os.path.join(self.temp, "home", "Desktop"))
+        self.assertEqual(len(backups), 1)
+        with open(os.path.join(self.temp, "home", "Desktop", backups[0], "BOOT", "BOOTx64.efi")) as handle:
+            self.assertEqual(handle.read().strip(), "bootx64-windows")
+        self.assertFalse(os.path.exists(os.path.join(self.temp, "esp.mounted")))
+
+    def test_declining_changes_nothing(self):
+        output = self.run_helper("n\nn\nn\n")
+        self.assertIn("Skipped. Keep starting from the USB stick", output)
+        self.assertFalse(os.path.exists(os.path.join(self.temp, "esp", "EFI", "OC")))
+        self.assertEqual(os.listdir(os.path.join(self.temp, "home", "Desktop")), [])
 
 
 class BuildSummaryTest(unittest.TestCase):
@@ -500,7 +697,7 @@ class KitBuildTest(unittest.TestCase):
         os.makedirs(tools_dir)
         open(os.path.join(tools_dir, "keep.zip"), "wb").close()
         removed = postinstall_kit.PostInstallKit(fetcher=FailingFetcher()).invalidate(self.dest)
-        self.assertEqual(len(removed), 3)
+        self.assertEqual(len(removed), len(postinstall_kit.GENERATED_FILES))
         self.assertEqual(os.listdir(self.dest), ["Tools"])
 
 

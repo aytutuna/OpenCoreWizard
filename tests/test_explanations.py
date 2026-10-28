@@ -377,7 +377,7 @@ class WindowExplanationTest(TkTestCase):
         from Scripts.gui import pages
         app = self.make_app(install_hooks=False)
         for page_class, key in ((pages.MacOSPage, "macos_version"), (pages.UsbMapPage, "usb_map"), (pages.RecoveryPage, "recovery"),
-                                (pages.PostInstallPage, "postinstall_kit"), (pages.UsbWriterPage, "usb_erase")):
+                                (pages.UsbWriterPage, "postinstall_kit"), (pages.UsbWriterPage, "usb_erase")):
             texts = "\n".join(self.label_texts(app.page_by_class(page_class)))
             self.assertIn(explanations.decisions[key]["why"], texts)
         legend = self.label_texts(app.page_by_class(pages.HardwarePage))

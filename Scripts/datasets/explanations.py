@@ -277,7 +277,7 @@ stages = {
 
 install_steps = [
     "Write the stick (USB page in the window, menu option 10 in the terminal). It erases the stick and copies the recovery image, the EFI folder and the post-install kit onto it.",
-    "Set the BIOS as the build output lists it (Secure Boot off, CSM off, and the rest; the Post-install page in the window explains each one), and fix what the Windows preflight warned about, such as BitLocker.",
+    "Set the BIOS as the build output lists it (Secure Boot off, CSM off, and the rest; the BIOS settings tab on the Finish page in the window explains each one), and fix what the Windows preflight warned about, such as BitLocker.",
     "Plug the stick in, start the PC and open the BIOS boot menu (usually F12, F11, F8 or Esc). Pick the stick's UEFI entry. OpenCore's menu appears; choose the recovery entry, called macOS Base System.",
     "If the screen stays black or the PC restarts, nothing on the PC has changed: unplug the stick and Windows starts as before. Build again as DEBUG and run the boot log analyzer (Finish page, or menu option 11) to see where it stopped.",
     "In Disk Utility choose View, Show All Devices, select the disk or partition for macOS and erase it as APFS with a GUID partition map. A separate SSD is the safe choice. To share the Windows disk, shrink Windows in Disk Management first, then add a partition in the free space here and format it APFS. BitLocker must be off.",

@@ -50,8 +50,16 @@ class Page(ttk.Frame):
     def on_show(self):
         pass
 
-    def can_next(self):
+    def complete(self):
+        # whether this step is done, so the steps after it may be opened
         return True
+
+    def hint(self):
+        # what to do before Next is enabled
+        return ""
+
+    def can_next(self):
+        return self.complete()
 
     def go_next(self):
         return True
@@ -122,6 +130,12 @@ class WelcomePage(Page):
         if not self.ran and self.app.autostart:
             self.run_checks()
 
+    def complete(self):
+        return self.session.preflight_ran
+
+    def hint(self):
+        return "Wait for the Windows preflight to finish, or press Run checks."
+
     def run_checks(self):
         self.ran = True
         self.app.run_stage("Checking this PC", self.session.preflight, on_done=self.show_checks)
@@ -146,21 +160,7 @@ class WelcomePage(Page):
 
     def express_done(self, summary):
         app = self.app
-        session = self.session
-        self.show_checks({"info": session.preflight_info, "warnings": session.preflight_warnings, "error": session.preflight_error, "admin": None})
-        app.page_by_class(HardwarePage).show_verdict(session.verdict())
-        macos = app.page_by_class(MacOSPage)
-        macos.on_show()
-        macos.choice.set(int(str(session.macos_version).split(".")[0]))
-        options = app.page_by_class(OptionsPage)
-        for key, var in options.vars.items():
-            var.set(session.options.get(key) or "")
-        options.debug.set(bool(session.options.get("debug")))
-        options.show_configuration(session.configuration(), advance=False)
-        app.page_by_class(BuildPage).show_result(session.build_result)
-        if summary["recovery"]:
-            app.page_by_class(RecoveryPage).done(summary["recovery"])
-        app.page_by_class(PostInstallPage).show_kit(session.kit_result)
+        sync_pages(app, summary["recovery"])
         lines = summary_lines(summary)
         if summary.get("bios"):
             lines += ["BIOS settings before you boot from the stick:"] + ["  - {}".format(line) for line in bios_lines(summary["bios"], summary.get("bios_state"))[:-1]]
@@ -231,8 +231,11 @@ class HardwarePage(Page):
         frame, self.messages = widgets.scrolled_text(self.body, height=4)
         frame.grid(row=5, column=0, sticky="nsew")
 
-    def can_next(self):
+    def complete(self):
         return self.session.hardware_report is not None
+
+    def hint(self):
+        return "Scan this PC or open a hardware report."
 
     def scan(self):
         self.app.run_stage("Scanning this PC", self.session.scan_report, on_done=self.show_verdict, on_error=self.show_failure)
@@ -329,8 +332,11 @@ class MacOSPage(Page):
         else:
             self.app.update_nav()
 
-    def can_next(self):
+    def complete(self):
         return bool(self.session.hardware_report) and self.choice.get() > 0
+
+    def hint(self):
+        return "Pick a macOS version."
 
     def selected(self):
         return self.choice.get() or None
@@ -439,7 +445,14 @@ class OptionsPage(Page):
             self.show_configuration(config, advance=False)
 
     def can_next(self):
+        # Next is what configures the build
         return bool(self.session.hardware_report) and bool(self.darwin())
+
+    def complete(self):
+        return self.session.configured
+
+    def hint(self):
+        return "Pick a macOS version first." if not self.darwin() else ""
 
     def options(self):
         options = {key: (var.get() or None) for key, var in self.vars.items()}
@@ -478,6 +491,7 @@ class UsbMapPage(Page):
     def build(self):
         self.loaded = False
         self.editor = None
+        self.map_ready = False
         self.note(self.body, "Automatic map selects the ports from what Windows reports, without plugging anything in. "
                              "To map by hand, plug a USB 2.0 and a USB 3.0 device into every port you use (front panel and Type-C too), pressing Refresh after each. "
                              "Ports that saw a device are selected. macOS allows at most {} ports per controller.".format(usb_mapper.MAX_PORTS_PER_CONTROLLER), 0)
@@ -506,11 +520,25 @@ class UsbMapPage(Page):
         self.message = self.note(self.body, "", 3)
 
     def on_show(self):
+        self.no_map.set(self.session.usb_map_disabled)
+        self.check_map()
         if self.session.usb_history is not None:
             self.redraw()
         elif not self.loaded and self.app.autostart:
             self.loaded = True
             self.app.run_stage("Reading the saved USB map", self.session.load_usb_history, on_done=lambda _: self.redraw())
+
+    def check_map(self):
+        self.map_ready = self.session.usb_map_ready()
+        self.app.update_nav()
+
+    def complete(self):
+        return self.map_ready
+
+    def hint(self):
+        if self.session.usb_dirty:
+            return "Press Save map to keep your changes."
+        return "Make a map (Automatic map, or plug devices in and Refresh) and press Save map, or tick Build without a USB map."
 
     def refresh(self):
         def work():
@@ -593,6 +621,7 @@ class UsbMapPage(Page):
         self.session.usb_dirty = self.session.usb_dirty or ok
         self.redraw()
         self.set_label(self.message, message, None if ok else "red")
+        self.check_map()
         return "break"
 
     def on_double_click(self, event):
@@ -623,6 +652,7 @@ class UsbMapPage(Page):
         self.session.usb_dirty = self.session.usb_dirty or ok
         self.redraw()
         self.set_label(self.message, message, None if ok else "red")
+        self.check_map()
 
     def close_editor(self):
         if self.editor is not None:
@@ -642,12 +672,14 @@ class UsbMapPage(Page):
             return
         self.no_map.set(False)
         self.set_label(self.message, "USB map saved to {}. The next build turns it into UTBMap.kext.".format(path), "green")
+        self.check_map()
 
     def toggle_no_map(self):
         self.session.set_usb_map_disabled(bool(self.no_map.get()))
+        self.check_map()
 
 
-BIOS_FOOTER = "The app cannot read every BIOS setting from Windows, so look at the 'check yourself' items in the BIOS too. If a setting you were asked to change is still wrong, OpenCore may not start. The Post-install page and POST-INSTALL.md in the kit explain each setting."
+BIOS_FOOTER = "The app cannot read every BIOS setting from Windows, so look at the 'check yourself' items in the BIOS too. If a setting you were asked to change is still wrong, OpenCore may not start. The BIOS settings tab on the Finish page and POST-INSTALL.md in the kit explain each setting."
 BIOS_LABELS = {"change": "Change in the BIOS", "ok": "Nothing to do", "unknown": "Check yourself in the BIOS"}
 BIOS_TAGS = {"change": "red", "ok": "green", "unknown": None}
 
@@ -724,6 +756,14 @@ class BuildPage(Page):
         widgets.set_text(self.notes, "")
         self.on_progress("", [], -1, False)
         self.app.run_stage("Building the EFI", self.session.build, on_done=self.show_result)
+
+    def complete(self):
+        return self.session.build_ready()
+
+    def hint(self):
+        if self.session.build_result and self.session.build_result["ocvalidate"] == "errors":
+            return "ocvalidate found errors in config.plist. Go back to Options, change the choices, and build again."
+        return "Press Build EFI."
 
     def on_progress(self, title, steps, index, done):
         for label in self.step_labels:
@@ -823,31 +863,49 @@ class RecoveryPage(Page):
 
     def done(self, path):
         self.set_label(self.state_label, "macOS recovery files are ready at {}.".format(path), "green")
+        self.app.update_nav()
+
+    def complete(self):
+        return self.session.recovery_ready()
+
+    def hint(self):
+        if self.session.macos_version:
+            return "Download the recovery image for {}, the version the EFI was built for.".format(macos_name(self.session.macos_version))
+        return "Press Download."
 
 
 class UsbWriterPage(Page):
     title = "USB"
-    heading = "Write the USB installer"
-    explains = ("usb_disk", "usb_erase")
+    heading = "Post-install kit and USB installer"
+    explains = ("postinstall_kit", "usb_disk", "usb_erase")
 
     def build(self):
         self.disks = []
         admin_row = ttk.Frame(self.body)
         admin_row.grid(row=0, column=0, sticky="ew")
-        self.admin_label = ttk.Label(admin_row, text="")
+        self.admin_label = ttk.Label(admin_row, text="", wraplength=620, justify="left")
         self.admin_label.grid(row=0, column=0, sticky="w")
         self.admin_button = ttk.Button(admin_row, text="Restart as administrator", command=self.restart_admin)
         self.admin_button.grid(row=0, column=1, padx=(12, 0))
+
+        kit = ttk.LabelFrame(self.body, text="Post-install kit", padding=(10, 6))
+        kit.grid(row=1, column=0, sticky="ew", pady=(6, 0))
+        self.kit_mode = tk.StringVar(value="full")
+        for column, (value, text) in enumerate((("full", "Full kit (downloads the tools)"), ("docs-only", "Docs only"))):
+            ttk.Radiobutton(kit, text=text, value=value, variable=self.kit_mode).grid(row=0, column=column, sticky="w", padx=(0, 18))
+        self.note(kit, "The kit is made from this build right before the stick is written, and copied to it with the installer. A dry run does not make it.",
+                  1, columnspan=2, tag="grey", wrap=720)
+
         self.mode = tk.StringVar(value="format")
         modes = ttk.Frame(self.body)
-        modes.grid(row=1, column=0, sticky="w", pady=(6, 4))
+        modes.grid(row=2, column=0, sticky="w", pady=(6, 4))
         usage = decisions["usb_mode"]["options"]
         for row, (value, text) in enumerate((("format", "Format a USB drive and write the installer"), ("copy", "Copy the EFI to an existing USB drive"))):
             ttk.Radiobutton(modes, text=text, value=value, variable=self.mode, command=self.update_mode).grid(row=row * 2, column=0, sticky="w")
             self.note(modes, usage[row][2], row * 2 + 1, tag="grey", wrap=720).grid_configure(padx=(24, 0))
 
         self.format_frame = ttk.LabelFrame(self.body, text="Format and write", padding=(10, 6))
-        self.format_frame.grid(row=2, column=0, sticky="nsew")
+        self.format_frame.grid(row=3, column=0, sticky="nsew")
         self.format_frame.columnconfigure(0, weight=1)
         bar = ttk.Frame(self.format_frame)
         bar.grid(row=0, column=0, sticky="ew")
@@ -873,15 +931,15 @@ class UsbWriterPage(Page):
         self.write_button.grid(row=0, column=3)
 
         self.copy_frame = ttk.LabelFrame(self.body, text="Copy EFI", padding=(10, 6))
-        self.copy_frame.grid(row=3, column=0, sticky="ew", pady=(6, 0))
+        self.copy_frame.grid(row=4, column=0, sticky="ew", pady=(6, 0))
         ttk.Label(self.copy_frame, text="USB drive letter:").grid(row=0, column=0, padx=(0, 6))
         self.letter = tk.StringVar()
         self.letter.trace_add("write", lambda *_: self.update_state())
         ttk.Entry(self.copy_frame, textvariable=self.letter, width=4).grid(row=0, column=1, padx=(0, 12))
         self.copy_button = ttk.Button(self.copy_frame, text="Copy EFI", command=self.copy)
         self.copy_button.grid(row=0, column=2)
-        self.result = self.note(self.body, "", 4)
-        self.body.rowconfigure(2, weight=1)
+        self.result = self.note(self.body, "", 5)
+        self.body.rowconfigure(3, weight=1)
         self.update_mode()
 
     def on_show(self):
@@ -890,15 +948,21 @@ class UsbWriterPage(Page):
             self.set_label(self.admin_label, "Running as administrator.", "green")
             self.admin_button.grid_remove()
         else:
-            self.set_label(self.admin_label, "Writing a USB drive needs administrator rights (a dry run does not).", "orange")
+            self.set_label(self.admin_label, "Writing a USB drive needs administrator rights (a dry run does not). "
+                                             "Restarting as administrator opens the wizard again at the Welcome page.", "orange")
             self.admin_button.grid()
         paths = self.session.paths()
         efi = os.path.isfile(os.path.join(paths["efi"], "OC", "config.plist"))
         recovery = os.path.isfile(os.path.join(paths["recovery"], "BaseSystem.dmg"))
-        kit = os.path.isfile(os.path.join(paths["postinstall"], "POST-INSTALL.md"))
-        self.set_label(self.payload, "EFI: {}   Recovery: {}   Post-install kit: {}".format("yes" if efi else "missing", "yes" if recovery else "missing", "yes" if kit else "no"),
+        self.set_label(self.payload, "EFI: {}   Recovery: {}   Post-install kit: made when you write".format("yes" if efi else "missing", "yes" if recovery else "missing"),
                        None if efi and recovery else "orange")
         self.update_state()
+
+    def complete(self):
+        return self.session.usb_ready()
+
+    def hint(self):
+        return "Write the USB drive (a dry run does not count), or copy the EFI to a drive that already has the installer."
 
     def update_mode(self):
         copy = self.mode.get() == "copy"
@@ -957,47 +1021,69 @@ class UsbWriterPage(Page):
         if not dry_run and not messagebox.askyesno("Erase disk", "Erase disk {} ({}) and write the installer?".format(disk["number"], disk["friendly_name"]), parent=self, icon="warning"):
             return
         erase = self.erase.get().strip()
+        kit_mode = self.kit_mode.get()
         self.erase.set("")
-        self.app.run_stage("Writing the USB installer", lambda: self.session.write_installer(disk, erase, dry_run), on_done=lambda _: self.finished("write"))
+        self.app.run_stage("Writing the USB installer", lambda: self.session.write_installer(disk, erase, dry_run, kit_mode), on_done=self.finished)
 
     def copy(self):
         letter = self.letter.get().strip().rstrip(":\\/").upper()
-        self.app.run_stage("Copying the EFI", lambda: self.session.copy_efi(letter), on_done=lambda _: self.finished("copy"))
+        kit_mode = self.kit_mode.get()
+        self.app.run_stage("Copying the EFI", lambda: self.session.copy_efi(letter, kit_mode), on_done=self.finished)
 
-    def finished(self, kind):
-        output = self.app.stage_text()
-        if "Verification passed" in output:
-            self.set_label(self.result, "Done: the files on the USB drive match the build.", "green")
-        elif "Dry run finished" in output:
-            self.set_label(self.result, "Dry run finished, nothing was changed.", "green")
+    def finished(self, result):
+        kit = result.get("kit")
+        if kit:
+            self.app.page_by_class(FinishPage).show_kit(kit)
+        if result.get("written"):
+            text = "Done: the files on the USB drive match the build."
+            failed = [name for name, state in (kit.get("tools") or {}).items() if state == "failed"] if kit else []
+            if failed:
+                text += " Not downloaded into the kit: {}.".format(", ".join(failed))
+            self.set_label(self.result, text, "orange" if failed else "green")
+        elif result.get("dry_run") and "Dry run finished" in self.app.stage_text():
+            self.set_label(self.result, "Dry run finished, nothing was changed. Write for real to continue.", "green")
         else:
             self.set_label(self.result, "Not completed. The log shows why.", "red")
         self.update_state()
+        self.app.update_nav()
 
     def restart_admin(self):
         if winsupport.relaunch_as_admin():
             self.app.on_close(force=True)
 
 
-class PostInstallPage(Page):
-    title = "Post-install"
-    heading = "Post-install kit and BIOS checklist"
-    explains = ("postinstall_kit",)
+class FinishPage(Page):
+    title = "Finish"
+    heading = "Finished: where everything is"
 
     def build(self):
-        bar = ttk.Frame(self.body)
-        bar.grid(row=0, column=0, sticky="ew")
-        ttk.Button(bar, text="Prepare full kit (downloads tools)", command=lambda: self.prepare("full")).grid(row=0, column=0, padx=(0, 6))
-        ttk.Button(bar, text="Prepare docs-only kit", command=lambda: self.prepare("docs-only")).grid(row=0, column=1, padx=(0, 6))
-        self.state_label = ttk.Label(bar, text="")
-        self.state_label.grid(row=0, column=2, padx=(12, 0))
-        panes = ttk.Panedwindow(self.body, orient="vertical")
-        panes.grid(row=1, column=0, sticky="nsew", pady=(6, 0))
-        self.body.rowconfigure(1, weight=1)
-        frame, self.checklist = widgets.scrolled_text(panes, height=10, mono=True)
-        panes.add(frame, weight=3)
-        lists = ttk.Frame(panes)
-        panes.add(lists, weight=2)
+        self.tabs = ttk.Notebook(self.body)
+        self.tabs.grid(row=0, column=0, sticky="nsew")
+        self.body.rowconfigure(0, weight=1)
+
+        overview = ttk.Frame(self.tabs, padding=(8, 8))
+        overview.columnconfigure(0, weight=1)
+        self.tabs.add(overview, text="Where everything is")
+        self.rows = ttk.Frame(overview)
+        self.rows.grid(row=0, column=0, sticky="ew")
+        self.rows.columnconfigure(1, weight=1)
+        ttk.Label(overview, text="What happens next", font=widgets.bold_font(self)).grid(row=1, column=0, sticky="w", pady=(12, 2))
+        frame, self.steps = widgets.scrolled_text(overview, height=9)
+        frame.grid(row=2, column=0, sticky="nsew")
+        overview.rowconfigure(2, weight=1)
+        widgets.append_lines(self.steps, ["{}. {}".format(number, step) for number, step in enumerate(install_steps, 1)])
+
+        checklist = ttk.Frame(self.tabs, padding=(8, 8))
+        checklist.columnconfigure(0, weight=1)
+        checklist.rowconfigure(1, weight=1)
+        self.tabs.add(checklist, text="Post-install checklist")
+        self.kit_label = ttk.Label(checklist, text="No kit yet: it is made when the USB drive is written.")
+        self.kit_label.grid(row=0, column=0, sticky="w", pady=(0, 4))
+        frame, self.checklist = widgets.scrolled_text(checklist, height=10, mono=True)
+        frame.grid(row=1, column=0, sticky="nsew")
+
+        lists = ttk.Frame(self.tabs, padding=(8, 8))
+        self.tabs.add(lists, text="BIOS settings")
         self.bios = {}
         for column, (key, title) in enumerate((("disable", "BIOS: Disable"), ("enable", "BIOS: Enable"), ("notes", "BIOS: Notes"))):
             lists.columnconfigure(column, weight=1)
@@ -1007,75 +1093,22 @@ class PostInstallPage(Page):
             self.bios[key] = text
         lists.rowconfigure(1, weight=1)
 
-    def on_show(self):
-        path = os.path.join(self.session.paths()["postinstall"], "POST-INSTALL.md")
-        if os.path.isfile(path) and not self.session.kit_result:
-            try:
-                with open(path, "r", encoding="utf-8") as handle:
-                    widgets.set_text(self.checklist, handle.read())
-                self.set_label(self.state_label, "Kit in {}".format(os.path.dirname(path)), "green")
-            except OSError:
-                pass
-        bios = self.session.bios_requirements()
-        self.show_bios(bios, self.session.bios_state(bios))
-
-    def show_bios(self, bios, state=None):
-        statuses = {item["setting"]: item for item in (state or {}).get("items", [])}
-        for key, text in self.bios.items():
-            widgets.set_text(text, "")
-            if bios is None:
-                widgets.append_lines(text, ["Load a hardware report and configure the build to see this list."], "grey")
-                continue
-            if state and state["other_pc"] and key != "notes":
-                widgets.append_lines(text, [bios_checklist.OTHER_PC], "grey")
-            for setting in bios.get(key) or ["(none)"]:
-                item = statuses.get(setting)
-                if item:
-                    widgets.append_lines(text, ["{} - {}".format(BIOS_LABELS[item["status"]], bios_checklist.item_line(item))], BIOS_TAGS[item["status"]], "- ")
-                else:
-                    widgets.append_lines(text, [setting], None, "- ")
-
-    def prepare(self, mode):
-        self.app.run_stage("Preparing the post-install kit", lambda: self.session.post_install_kit(mode), on_done=self.show_kit, percent=(mode == "full"))
-
-    def show_kit(self, result):
-        widgets.set_text(self.checklist, result.get("checklist") or "")
-        failed = [name for name, state in (result.get("tools") or {}).items() if state == "failed"]
-        text = "Kit ready in {}".format(result.get("dest_dir"))
-        if failed:
-            text += "; not downloaded: {}".format(", ".join(failed))
-        self.set_label(self.state_label, text, "orange" if failed else "green")
-        if result.get("bios") is not None:
-            self.show_bios(result["bios"], result.get("bios_state"))
-
-
-class FinishPage(Page):
-    title = "Finish"
-    heading = "Finished: where everything is"
-
-    def build(self):
-        self.rows = ttk.Frame(self.body)
-        self.rows.grid(row=0, column=0, sticky="ew")
-        self.rows.columnconfigure(1, weight=1)
-        ttk.Label(self.body, text="What happens next", font=widgets.bold_font(self)).grid(row=1, column=0, sticky="w", pady=(12, 2))
-        frame, self.steps = widgets.scrolled_text(self.body, height=9)
-        frame.grid(row=2, column=0, sticky="nsew")
-        widgets.append_lines(self.steps, ["{}. {}".format(number, step) for number, step in enumerate(install_steps, 1)])
-        ttk.Label(self.body, text="Analyze a boot log", font=widgets.bold_font(self)).grid(row=3, column=0, sticky="w", pady=(12, 2))
-        self.note(self.body, "A DEBUG EFI writes opencore-YYYY-MM-DD-hhmmss.txt to the root of the EFI partition it booted from. Pick that file, or the USB drive to use its newest log.", 4)
-        bar = ttk.Frame(self.body)
-        bar.grid(row=5, column=0, sticky="w")
+        log = ttk.Frame(self.tabs, padding=(8, 8))
+        log.columnconfigure(0, weight=1)
+        self.tabs.add(log, text="Boot log")
+        self.note(log, "A DEBUG EFI writes opencore-YYYY-MM-DD-hhmmss.txt to the root of the EFI partition it booted from. Pick that file, or the USB drive to use its newest log.", 0)
+        bar = ttk.Frame(log)
+        bar.grid(row=1, column=0, sticky="w")
         ttk.Button(bar, text="Open log file...", command=self.open_log).grid(row=0, column=0, padx=(0, 6))
         ttk.Button(bar, text="Choose drive or folder...", command=self.open_folder_log).grid(row=0, column=1)
-        self.verdict = ttk.Label(self.body, text="", font=widgets.bold_font(self), wraplength=760, justify="left")
-        self.verdict.grid(row=6, column=0, sticky="w", pady=(6, 4))
-        frame, self.findings = widgets.tree(self.body, ("severity", "line", "cause", "fix"), ("Severity", "Line", "Cause", "Fix"),
+        self.verdict = ttk.Label(log, text="", font=widgets.bold_font(self), wraplength=760, justify="left")
+        self.verdict.grid(row=2, column=0, sticky="w", pady=(6, 4))
+        frame, self.findings = widgets.tree(log, ("severity", "line", "cause", "fix"), ("Severity", "Line", "Cause", "Fix"),
                                             {"severity": 80, "line": 60, "cause": 340, "fix": 380}, height=5)
-        frame.grid(row=7, column=0, sticky="nsew")
-        frame, self.report = widgets.scrolled_text(self.body, height=8, mono=True)
-        frame.grid(row=8, column=0, sticky="nsew", pady=(6, 0))
-        self.body.rowconfigure(2, weight=1)
-        self.body.rowconfigure(8, weight=1)
+        frame.grid(row=3, column=0, sticky="nsew")
+        frame, self.report = widgets.scrolled_text(log, height=8, mono=True)
+        frame.grid(row=4, column=0, sticky="nsew", pady=(6, 0))
+        log.rowconfigure(4, weight=1)
 
     def on_show(self):
         for child in self.rows.winfo_children():
@@ -1099,6 +1132,37 @@ class FinishPage(Page):
             button.grid(row=row, column=2, sticky="e", pady=1)
             if not exists:
                 button.state(["disabled"])
+        if self.session.kit_result:
+            self.show_kit(self.session.kit_result)
+            return
+        bios = self.session.bios_requirements()
+        self.show_bios(bios, self.session.bios_state(bios))
+
+    def show_bios(self, bios, state=None):
+        statuses = {item["setting"]: item for item in (state or {}).get("items", [])}
+        for key, text in self.bios.items():
+            widgets.set_text(text, "")
+            if bios is None:
+                widgets.append_lines(text, ["Load a hardware report and configure the build to see this list."], "grey")
+                continue
+            if state and state["other_pc"] and key != "notes":
+                widgets.append_lines(text, [bios_checklist.OTHER_PC], "grey")
+            for setting in bios.get(key) or ["(none)"]:
+                item = statuses.get(setting)
+                if item:
+                    widgets.append_lines(text, ["{} - {}".format(BIOS_LABELS[item["status"]], bios_checklist.item_line(item))], BIOS_TAGS[item["status"]], "- ")
+                else:
+                    widgets.append_lines(text, [setting], None, "- ")
+
+    def show_kit(self, result):
+        widgets.set_text(self.checklist, result.get("checklist") or "")
+        failed = [name for name, state in (result.get("tools") or {}).items() if state == "failed"]
+        text = "Kit ready in {}".format(result.get("dest_dir"))
+        if failed:
+            text += "; not downloaded: {}".format(", ".join(failed))
+        self.set_label(self.kit_label, text, "orange" if failed else "green")
+        if result.get("bios") is not None:
+            self.show_bios(result["bios"], result.get("bios_state"))
 
     def open_log(self):
         path = filedialog.askopenfilename(parent=self, title="Open an OpenCore log", filetypes=[("OpenCore log", "*.txt *.log"), ("All files", "*.*")])
@@ -1124,4 +1188,31 @@ class FinishPage(Page):
         widgets.set_text(self.report, report.get("text") or "")
 
 
-PAGE_CLASSES = (WelcomePage, HardwarePage, MacOSPage, OptionsPage, UsbMapPage, BuildPage, RecoveryPage, UsbWriterPage, PostInstallPage, FinishPage)
+def sync_pages(app, recovery=None):
+    # fill these pages from the session, after express or the simple window did the work
+    session = app.session
+    if session.preflight_ran:
+        app.page_by_class(WelcomePage).show_checks({"info": session.preflight_info, "warnings": session.preflight_warnings, "error": session.preflight_error, "admin": None})
+    app.page_by_class(HardwarePage).show_verdict(session.verdict())
+    macos = app.page_by_class(MacOSPage)
+    macos.on_show()
+    if session.macos_version:
+        macos.choice.set(int(str(session.macos_version).split(".")[0]))
+    options = app.page_by_class(OptionsPage)
+    for key, var in options.vars.items():
+        var.set(session.options.get(key) or "")
+    options.debug.set(bool(session.options.get("debug")))
+    config = session.configuration()
+    if config:
+        options.show_configuration(config, advance=False)
+    app.page_by_class(UsbMapPage).check_map()
+    if session.build_result:
+        app.page_by_class(BuildPage).show_result(session.build_result)
+    recovery = recovery or (session.recovery_path if session.recovery_ready() else None)
+    if recovery:
+        app.page_by_class(RecoveryPage).done(recovery)
+    if session.kit_result:
+        app.page_by_class(FinishPage).show_kit(session.kit_result)
+
+
+PAGE_CLASSES = (WelcomePage, HardwarePage, MacOSPage, OptionsPage, UsbMapPage, BuildPage, RecoveryPage, UsbWriterPage, FinishPage)

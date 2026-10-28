@@ -40,7 +40,7 @@ Sources: `_ref/dortania-install-guide/installer-guide/opencore-efi.md`, `ktext.m
 2. Format the USB:
    - Disk Management: delete all partitions, create one simple volume, FAT32 (name "EFI" is suggested), or
    - Rufus: Boot selection "not bootable", file system "Large FAT32" (for sticks larger than 16GB), then delete any autorun files, or
-   - diskpart: `clean`, `convert gpt` (MBR fails with the BOOTICE/DuetPkg bug), `create partition primary`, `format fs=fat32 quick`, `assign letter=<free letter>`.
+   - diskpart: `clean`, `convert gpt` (MBR fails with the BOOTICE/DuetPkg bug; skip it when the stick is already GPT: there `convert gpt` after `clean` fails with "not MBR formatted", and without it the stick comes out MBR, which UEFI firmware boots from as well), `create partition primary`, `format fs=fat32 quick override`, `assign letter=<free letter>`. The wizard runs the format as a second diskpart script (`select partition <n>` first) once Windows lists the new volume: in the same script it failed with "There is no volume selected". `override` dismounts the new volume first: Windows mounts it as soon as it is created, and if Explorer or an antivirus opens it the format fails with "Access is denied" (the System log shows "Cannot zero sectors ... Error code: 5"). Each script is retried twice; the set-up script rereads the stick's layout each time.
 3. At the root of the USB create the folder `com.apple.recovery.boot` and copy both the `.dmg` and the `.chunklist` into it.
 4. Copy the prepared `EFI` folder to the root of the USB, alongside `com.apple.recovery.boot`.
 5. Legacy (non-UEFI) firmware only: diskpart route with BOOTICE (Restore MBR with `boot0`, Restore PBR with `boot1f32` from `Utilities/LegacyBoot/`), then place `bootx64` or `bootia32` from `Utilities/LegacyBoot/` at the root renamed to `boot`.
@@ -69,7 +69,7 @@ Sources: `_ref/dortania-install-guide/installer-guide/windows-install.md`, `inst
 
 1. Boot from the USB. Most laptops and some desktops default to the internal drive, so use the firmware boot menu key (Esc, F2, F10 or F12 are typical; look it up for the model).
 2. The OpenCore picker normally shows: Windows, `macOS Base System (External)` / `Install macOS ... (External)` / the USB name, `OpenShell.efi`, `Reset NVRAM`.
-3. Newer OpenCore enables `HideAuxiliary`, so press Space to reveal the installer/tools.
+3. Newer OpenCore enables `HideAuxiliary`, so press Space to reveal the installer/tools. The wizard's build turns it off and sets `Timeout` to 0: with the installer hidden, the picker offered only Windows and started it after 5 seconds, so the stick seemed to do nothing. The post-install helper sets `Timeout` 5 and `HideAuxiliary` back on when it moves the EFI to the internal disk.
 4. Pick the installer entry (the macOS base system / "Install macOS" / USB-name entry marked External).
 5. Reset NVRAM from the picker (`Reset NVRAM`, needs `ResetNvramEntry.efi` and `Misc -> Security -> AllowNvramReset`) when the installer shows the wrong language or after a failed install attempt. The language is stored in `prev-lang:kbd` (`NVRAM -> Add -> 7C436110-AB2A-4BBB-A880-FE41995C9F82`); `656e2d55533a30` is en-US:0. ThinkPads can be semi-bricked by an NVRAM reset; update the BIOS instead on those.
 6. Verbose boot text is normal; it is what the troubleshooting section keys on.

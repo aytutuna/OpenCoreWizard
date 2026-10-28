@@ -1,4 +1,5 @@
 import math
+import os
 import queue
 import sys
 import tkinter as tk
@@ -6,10 +7,12 @@ from tkinter import filedialog
 from tkinter import messagebox
 from tkinter import ttk
 
+from Scripts import app_paths
 from Scripts import utils
 from Scripts.datasets.explanations import decisions
 from Scripts.datasets.explanations import glossary
 from Scripts.gui import broker as broker_module
+from Scripts.gui import easy
 from Scripts.gui import pages
 from Scripts.gui import widgets
 from Scripts.gui import winsupport
@@ -22,7 +25,10 @@ APP_TITLE = "OpenCore Wizard"
 POLL_MS = 50
 STAGE_OUTPUT_LIMIT = 20000
 LOG_LINE_LIMIT = 5000
-EXPRESS_PAGES = dict(zip(EXPRESS_STEPS, ("Welcome", "Hardware", "Options", "USB mapping", "Build", "Recovery", "Post-install")))
+DETAILS_NAME = "OpenCoreWizard-details.log"
+EXPRESS_PAGES = dict(zip(EXPRESS_STEPS, ("Welcome", "Hardware", "Options", "USB mapping", "Build", "Recovery", "USB")))
+# the simple window is what opens; Advanced mode has every page and choice
+MODES = {"easy": easy.PAGE_CLASSES, "advanced": pages.PAGE_CLASSES}
 
 
 class PromptDialog(tk.Toplevel):
@@ -48,6 +54,10 @@ class PromptDialog(tk.Toplevel):
         frame.grid(row=2, column=0, sticky="nsew", padx=12)
         widgets.set_text(text, broker_module.strip_ansi(request.captured).strip("\n"))
         text.see("end")
+        # with buttons to choose from, the tool output behind the question is only noise
+        self.output = frame
+        if request.choices:
+            frame.grid_remove()
 
         if request.choices:
             buttons = ttk.Frame(self)
@@ -68,10 +78,12 @@ class PromptDialog(tk.Toplevel):
         entry.grid(row=0, column=1, sticky="ew")
         ttk.Button(entry_row, text="Submit", command=lambda: self.submit(self.answer.get())).grid(row=0, column=2, padx=(6, 0))
         ttk.Button(entry_row, text="Cancel stage", command=self.cancel).grid(row=0, column=3, padx=(6, 0))
+        if request.choices:
+            ttk.Button(entry_row, text="Details", command=lambda: self.output.grid()).grid(row=0, column=4, padx=(6, 0))
         hint = "Press Enter to submit."
         if request.default:
             hint += " An empty answer uses the default ({}).".format(request.default)
-        ttk.Label(entry_row, text=hint, foreground=widgets.COLORS["grey"]).grid(row=1, column=0, columnspan=4, sticky="w", pady=(4, 0))
+        ttk.Label(entry_row, text=hint, foreground=widgets.COLORS["grey"]).grid(row=1, column=0, columnspan=5, sticky="w", pady=(4, 0))
 
         entry.bind("<Return>", lambda _: self.submit(self.answer.get()))
         self.bind("<Escape>", lambda _: self.cancel())
@@ -140,7 +152,7 @@ class GlossaryWindow(tk.Toplevel):
 
 
 class OpenCoreWizardApp(tk.Tk):
-    def __init__(self, autostart=True, install_hooks=True):
+    def __init__(self, autostart=True, install_hooks=True, mode="easy", details_path=None):
         super().__init__()
         self.title(APP_TITLE)
         self.fit_window(1180, 820, 960, 680)
@@ -163,17 +175,26 @@ class OpenCoreWizardApp(tk.Tk):
         self.hooks_installed = False
         self.glossary = None
 
+        self.mode = None
+        self.page_sets = {}
+        self.pages = []
+        self.step_labels = []
+        self.index = 0
+        self.log_visible = False
+        # what Details shows, also kept in a file, so a failure can be looked at after the window is closed
+        self.details_file = None
+        if details_path:
+            try:
+                self.details_file = open(details_path, "w", encoding="utf-8")
+            except OSError:
+                self.details_file = None
+
         self.setup_style()
         self.build_layout()
-        self.pages = [page_class(self) for page_class in pages.PAGE_CLASSES]
-        for page in self.pages:
-            page.grid(row=0, column=0, sticky="nsew")
-        self.build_steps()
-        self.index = 0
         if install_hooks:
             self.install_hooks()
         self.protocol("WM_DELETE_WINDOW", self.on_close)
-        self.show_page(0)
+        self.set_mode(mode)
         self._poll_id = self.after(POLL_MS, self.poll)
 
     def fit_window(self, width, height, min_width, min_height):
@@ -195,6 +216,7 @@ class OpenCoreWizardApp(tk.Tk):
                 break
         self.style.configure("Step.TLabel", padding=(14, 6))
         self.style.configure("CurrentStep.TLabel", padding=(14, 6), font=widgets.bold_font(self))
+        self.style.configure("LockedStep.TLabel", padding=(14, 6), foreground=widgets.COLORS["grey"])
         self.style.configure("Express.TButton", padding=(16, 8), font=widgets.bold_font(self))
 
     def build_layout(self):
@@ -215,29 +237,35 @@ class OpenCoreWizardApp(tk.Tk):
         self.page_host.rowconfigure(0, weight=1)
         panes.add(self.page_host, weight=4)
 
-        log_frame = ttk.Frame(panes, padding=(8, 4, 8, 0))
-        log_frame.columnconfigure(0, weight=1)
-        log_frame.rowconfigure(1, weight=1)
-        header = ttk.Frame(log_frame)
+        # the output of the tools behind each step; hidden until Details is pressed
+        self.panes = panes
+        self.log_frame = ttk.Frame(panes, padding=(8, 4, 8, 0))
+        self.log_frame.columnconfigure(0, weight=1)
+        self.log_frame.rowconfigure(1, weight=1)
+        header = ttk.Frame(self.log_frame)
         header.grid(row=0, column=0, sticky="ew")
         header.columnconfigure(0, weight=1)
-        ttk.Label(header, text="Log", font=widgets.bold_font(self)).grid(row=0, column=0, sticky="w")
-        ttk.Button(header, text="Save log...", command=self.save_log).grid(row=0, column=1, padx=(0, 4))
+        ttk.Label(header, text="Details", font=widgets.bold_font(self)).grid(row=0, column=0, sticky="w")
+        ttk.Button(header, text="Save...", command=self.save_log).grid(row=0, column=1, padx=(0, 4))
         ttk.Button(header, text="Clear", command=self.clear_log).grid(row=0, column=2)
-        frame, self.log = widgets.scrolled_text(log_frame, height=9, mono=True, wrap="char")
+        frame, self.log = widgets.scrolled_text(self.log_frame, height=9, mono=True, wrap="char")
         frame.grid(row=1, column=0, sticky="nsew")
-        panes.add(log_frame, weight=2)
 
         nav = ttk.Frame(self, padding=(8, 6))
         nav.grid(row=1, column=0, sticky="ew")
-        nav.columnconfigure(1, weight=1)
+        nav.columnconfigure(3, weight=1)
         self.cancel_button = ttk.Button(nav, text="Cancel", command=self.cancel_stage)
         self.cancel_button.grid(row=0, column=0)
-        ttk.Button(nav, text="What do these words mean?", command=self.show_glossary).grid(row=0, column=1, sticky="w", padx=(6, 0))
+        self.mode_button = ttk.Button(nav, text="Advanced mode", command=self.toggle_mode)
+        self.mode_button.grid(row=0, column=1, padx=(6, 0))
+        self.glossary_button = ttk.Button(nav, text="What do these words mean?", command=self.show_glossary)
+        self.glossary_button.grid(row=0, column=2, sticky="w", padx=(6, 0))
+        self.next_hint = ttk.Label(nav, text="", foreground=widgets.COLORS["orange"], wraplength=520, justify="right")
+        self.next_hint.grid(row=0, column=3, sticky="e", padx=(6, 12))
         self.back_button = ttk.Button(nav, text="< Back", command=self.back)
-        self.back_button.grid(row=0, column=2, padx=(0, 6))
+        self.back_button.grid(row=0, column=4, padx=(0, 6))
         self.next_button = ttk.Button(nav, text="Next >", command=self.next)
-        self.next_button.grid(row=0, column=3)
+        self.next_button.grid(row=0, column=5)
 
         status = ttk.Frame(self, padding=(8, 2, 8, 6))
         status.grid(row=2, column=0, sticky="ew")
@@ -246,11 +274,52 @@ class OpenCoreWizardApp(tk.Tk):
         self.status.grid(row=0, column=0, sticky="w")
         self.progress = ttk.Progressbar(status, length=260, mode="determinate", maximum=100)
         self.progress.grid(row=0, column=1, sticky="e")
+        self.details_button = ttk.Button(status, text="Details", command=self.toggle_log)
+        self.details_button.grid(row=0, column=2, padx=(8, 0))
+
+    def toggle_log(self, show=None):
+        show = not self.log_visible if show is None else bool(show)
+        if show and not self.log_visible:
+            self.panes.add(self.log_frame, weight=2)
+        elif not show and self.log_visible:
+            self.panes.forget(self.log_frame)
+        self.log_visible = show
+        self.details_button.configure(text="Hide details" if show else "Details")
+
+    def set_mode(self, mode):
+        if self.runner.busy() or mode == self.mode:
+            return
+        if mode not in self.page_sets:
+            created = [page_class(self) for page_class in MODES[mode]]
+            for page in created:
+                page.grid(row=0, column=0, sticky="nsew")
+            self.page_sets[mode] = created
+        previous = self.mode
+        self.mode = mode
+        self.pages = self.page_sets[mode]
+        self.index = 0
+        self.build_steps()
+        if previous and mode == "advanced":
+            pages.sync_pages(self)
+        self.mode_button.configure(text="Simple mode" if mode == "advanced" else "Advanced mode")
+        if mode == "advanced":
+            self.glossary_button.grid()
+        else:
+            self.glossary_button.grid_remove()
+        # carry on where the work stands: the first step that is not done yet
+        self.show_page(self.reachable() if previous else 0)
+
+    def toggle_mode(self):
+        self.set_mode("easy" if self.mode == "advanced" else "advanced")
 
     def build_steps(self):
+        for label in self.step_labels:
+            label.destroy()
         self.step_labels = []
+        # a fixed width, so the list does not jump when the bold current step moves
+        width = max(len(page.title) for page in self.pages) + 8
         for index, page in enumerate(self.pages):
-            label = ttk.Label(self.steps_frame, text="{:>2}  {}".format(index + 1, page.title), style="Step.TLabel", cursor="hand2")
+            label = ttk.Label(self.steps_frame, text="{:>2}  {}".format(index + 1, page.title), style="Step.TLabel", cursor="hand2", width=width)
             label.grid(row=index, column=0, sticky="ew")
             label.bind("<Button-1>", lambda _, target=index: self.jump(target))
             self.step_labels.append(label)
@@ -289,16 +358,25 @@ class OpenCoreWizardApp(tk.Tk):
         self.update_nav()
 
     def render_steps(self, running=None):
+        reachable = self.reachable()
         for position, label in enumerate(self.step_labels):
             title = self.pages[position].title
             if running:
                 marker, current = ("*", True) if title == running else (" ", False)
             else:
                 marker, current = (">", True) if position == self.index else (" ", False)
-            label.configure(text="{} {:>2}  {}".format(marker, position + 1, title), style="CurrentStep.TLabel" if current else "Step.TLabel")
+            style = "CurrentStep.TLabel" if current else "Step.TLabel" if position <= reachable else "LockedStep.TLabel"
+            label.configure(text="{} {:>2}  {}".format(marker, position + 1, title), style=style)
+
+    def reachable(self):
+        # the furthest step that may be opened: every step before it is done
+        for position, page in enumerate(self.pages):
+            if not page.complete():
+                return position
+        return len(self.pages) - 1
 
     def jump(self, index):
-        if self.runner.busy():
+        if self.runner.busy() or index > max(self.index, self.reachable()):
             return
         self.show_page(index)
 
@@ -333,8 +411,13 @@ class OpenCoreWizardApp(tk.Tk):
         self.back_button.state(["!disabled"] if self.index > 0 and not busy else ["disabled"])
         last = self.index >= len(self.pages) - 1
         self.next_button.configure(text="Close" if last else "Next >")
-        self.next_button.state(["!disabled"] if not busy and (last or page.can_next()) else ["disabled"])
+        allowed = last or page.can_next()
+        self.next_button.state(["!disabled"] if not busy and allowed else ["disabled"])
+        self.next_hint.configure(text="" if busy or allowed else page.hint())
+        if self.step_labels and not busy:
+            self.render_steps()
         self.cancel_button.state(["!disabled"] if busy else ["disabled"])
+        self.mode_button.state(["disabled"] if busy else ["!disabled"])
         if hasattr(page, "update_state"):
             page.update_state()
 
@@ -416,7 +499,7 @@ class OpenCoreWizardApp(tk.Tk):
             value = 100 if done or not steps else max(0, index) * 100.0 / len(steps)
             self.set_progress("determinate", value)
             if steps and 0 <= index < len(steps) and not done:
-                self.set_status("{}: {}...".format(title, steps[index]))
+                self.set_status("{}: {}...".format(title, easy.PLAIN_STEPS.get(steps[index], steps[index])))
             self.pages[self.index].on_progress(title, steps, index, done)
             if title == EXPRESS_TITLE and not done and 0 <= index < len(steps):
                 self.render_steps(EXPRESS_PAGES.get(steps[index]))
@@ -466,13 +549,19 @@ class OpenCoreWizardApp(tk.Tk):
                 if extra:
                     text += "\n\n" + "\n".join("- {}".format(line) for line in extra[:15])
                 if not isinstance(error, StageError):
-                    text += "\n\nThe log at the bottom of the window has the details."
+                    text += "\n\nDetails, at the bottom right of the window, shows what happened."
                 messagebox.showerror(APP_TITLE, "{} failed.\n\n{}".format(label, text), parent=self)
 
     def append_log(self, text):
         if not text:
             return
         self.stage_output = (self.stage_output + text)[-STAGE_OUTPUT_LIMIT:]
+        if self.details_file:
+            try:
+                self.details_file.write(broker_module.strip_ansi(text))
+                self.details_file.flush()
+            except (OSError, ValueError):
+                self.details_file = None
         self.log.configure(state="normal")
         for segment, tag in self.ansi.feed(text):
             parts = segment.split("\r")
@@ -524,6 +613,9 @@ class OpenCoreWizardApp(tk.Tk):
                 pass
             self._poll_id = None
         self.uninstall_hooks()
+        if self.details_file:
+            self.details_file.close()
+            self.details_file = None
         try:
             self.progress.stop()
         except tk.TclError:
@@ -531,16 +623,21 @@ class OpenCoreWizardApp(tk.Tk):
         super().destroy()
 
     def self_test(self, duration_ms=2000):
+        # every page of both modes, the current mode first
         visited = []
-        step = max(50, duration_ms // (len(self.pages) + 1))
+        modes = [self.mode] + [mode for mode in MODES if mode != self.mode]
+        order = [(mode, index) for mode in modes for index in range(len(MODES[mode]))]
+        step = max(50, duration_ms // (len(order) + 1))
 
-        def visit(index):
+        def visit(position):
             if self.closing:
                 return
+            mode, index = order[position]
+            self.set_mode(mode)
             self.show_page(index)
             visited.append(self.pages[index].title)
-            if index + 1 < len(self.pages):
-                self.after(step, lambda: visit(index + 1))
+            if position + 1 < len(order):
+                self.after(step, lambda: visit(position + 1))
             else:
                 self.after(step, self.destroy)
 
@@ -553,11 +650,17 @@ class OpenCoreWizardApp(tk.Tk):
 
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
+    # writing the USB drive needs administrator rights, and restarting later would lose the steps already done
+    if "--self-test" not in argv and "--elevated" not in argv and os.name == "nt" and not winsupport.is_admin():
+        if winsupport.relaunch_as_admin(["--elevated"]):
+            return 0
     winsupport.enable_dpi_awareness()
-    app = OpenCoreWizardApp(autostart="--self-test" not in argv)
+    test = "--self-test" in argv
+    app = OpenCoreWizardApp(autostart=not test, mode="advanced" if "--advanced" in argv else "easy",
+                            details_path=None if test else os.path.join(app_paths.app_dir(), DETAILS_NAME))
     if "--self-test" in argv:
         visited = app.self_test()
         print("Self-test: visited {} pages: {}".format(len(visited), ", ".join(visited)))
-        return 0 if len(visited) == len(pages.PAGE_CLASSES) else 1
+        return 0 if len(visited) == sum(len(classes) for classes in MODES.values()) else 1
     app.mainloop()
     return 0

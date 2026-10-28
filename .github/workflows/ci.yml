@@ -127,7 +127,7 @@ jobs:
         shell: bash
         run: |
           kit=Results/PostInstall
-          for name in POST-INSTALL.md post-install.command smbios.txt; do
+          for name in POST-INSTALL.md post-install.command smbios.txt "START HERE.html"; do
             if [ ! -f "$kit/$name" ]; then
               echo "::error::$kit/$name was not created"
               exit 1

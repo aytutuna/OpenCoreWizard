@@ -160,7 +160,7 @@ jobs:
             echo "::error::express build exited with $code"
             exit 1
           fi
-          if ! grep -q "^Post-install kit: " express.txt; then
+          if ! grep -q "^Post-install kit:" express.txt; then
             echo "::error::the express summary was not printed"
             exit 1
           fi

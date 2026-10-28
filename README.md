@@ -1,6 +1,6 @@
-# MacBootsmith
+# OpenCore Wizard
 
-MacBootsmith is a Windows tool that takes a PC from hardware scan to a bootable OpenCore USB installer for macOS. It is a fork of OpCore-Simplify with the stages that project leaves to the user (validation, recovery download, USB creation, BIOS guidance) added on top.
+OpenCore Wizard is a Windows tool that takes a PC from hardware scan to a bootable OpenCore USB installer for macOS. It is a fork of OpCore-Simplify with the stages that project leaves to the user (validation, recovery download, USB creation, BIOS guidance) added on top.
 
 macOS 26 Tahoe is the last macOS release for Intel hardware, so the supported range is macOS High Sierra through Tahoe.
 
@@ -8,7 +8,7 @@ macOS 26 Tahoe is the last macOS release for Intel hardware, so the supported ra
 
 Early development. Every push is tested in CI: unit tests, a headless EFI build against hardware report fixtures, and a QEMU boot of the generated EFI to the OpenCore picker. The maintainers have not yet verified a full install on real hardware, and the USB writer in particular has not been run against a real stick. Expect rough edges and read the prompts carefully.
 
-CI runs: https://github.com/aytutuna/MacBootsmith/actions
+CI runs: https://github.com/aytutuna/OpenCoreWizard/actions
 
 ## What it does
 
@@ -44,11 +44,11 @@ Open work is tracked in `docs/reference/gaps.md`.
 
 ### Quick start
 
-Run `MacBootsmith.bat`, click "Build everything with recommended choices" on the Welcome page, then follow the USB page. The button scans this PC, picks the suggested macOS version, builds and validates the EFI, downloads the recovery image (not when ocvalidate reports errors) and prepares the full post-install kit. It takes every default shown as (default: ...); yes/no questions, device choices and the OpenCore Legacy Patcher warning are still asked. It never writes a USB drive. Without a saved USB map the build uses UTBDefault.kext; map the ports later and build again. In the terminal menu the same run is option A. Each build question explains what it asks, why, and when to pick each answer (the same text is in `docs/reference/choices.md`); the words it uses are explained behind the "What do these words mean?" button in the window's footer and under G in the terminal menu.
+Run `OpenCoreWizard.bat`, click "Build everything with recommended choices" on the Welcome page, then follow the USB page. The button scans this PC, picks the suggested macOS version, builds and validates the EFI, downloads the recovery image (not when ocvalidate reports errors) and prepares the full post-install kit. It takes every default shown as (default: ...); yes/no questions, device choices and the OpenCore Legacy Patcher warning are still asked. It never writes a USB drive. Without a saved USB map the build uses UTBDefault.kext; map the ports later and build again. In the terminal menu the same run is option A. Each build question explains what it asks, why, and when to pick each answer (the same text is in `docs/reference/choices.md`); the words it uses are explained behind the "What do these words mean?" button in the window's footer and under G in the terminal menu.
 
 ### Graphical interface
 
-Double-click `MacBootsmith.bat` (or run `python MacBootsmith.py`). It finds Python 3, offers to install it from python.org when it is missing, and opens the window without a console. If Tkinter is missing, the terminal menu starts instead. The window walks through the stages in order, with a step list on the left and a log at the bottom:
+Double-click `OpenCoreWizard.bat` (or run `python OpenCoreWizard.py`). It finds Python 3, offers to install it from python.org when it is missing, and opens the window without a console. If Tkinter is missing, the terminal menu starts instead. The window walks through the stages in order, with a step list on the left and a log at the bottom:
 
 1. Welcome: requirements, the Windows preflight (BitLocker, partition style, EFI partition size) and the express button from the quick start.
 2. Hardware: scan this PC or open an existing report, then read the compatibility verdict per device.
@@ -63,11 +63,11 @@ Double-click `MacBootsmith.bat` (or run `python MacBootsmith.py`). It finds Pyth
 
 The window drives the same OpenCore engine stages as the terminal menu and headless mode; nothing is decided differently. When a stage needs an answer that has no control on the page (for example which of two GPUs to keep), a dialog shows the stage's own text and options. Cancel stops the running stage at its next output or question.
 
-`python MacBootsmith.py --self-test` opens the window, visits every page and closes after two seconds (used by CI).
+`python OpenCoreWizard.py --self-test` opens the window, visits every page and closes after two seconds (used by CI).
 
 ### Terminal menu
 
-Run `MacBootsmith.bat --terminal` (or `python MacBootsmith.py --terminal`) as administrator. The main menu offers:
+Run `OpenCoreWizard.bat --terminal` (or `python OpenCoreWizard.py --terminal`) as administrator. The main menu offers:
 
 A. Build everything with recommended choices: the express run from the quick start. It ends with a summary and the BIOS checklist; continue with option 10.
 
@@ -88,7 +88,7 @@ Then boot from the USB and work through the on-screen BIOS checklist.
 Headless mode builds an EFI without prompts, from a JSON answers file (used by CI and for scripting):
 
 ```
-python MacBootsmith.py --headless <answers.json>
+python OpenCoreWizard.py --headless <answers.json>
 ```
 
 Add `"debug": true` to the answers file for a DEBUG EFI (see `tests/fixtures/answers-desktop-debug.json`). `"express": true` runs the express chain instead (see `tests/fixtures/answers-express.json`); it reads `report`, `acpi`, `usb_map` (`"auto"` maps the ports of the PC it runs on before the build), `skip_recovery` (default true) and `postinstall_kit` (false for no kit) like a normal run, and exits 3 only when nothing can be installed.
@@ -96,7 +96,7 @@ Add `"debug": true` to the answers file for a DEBUG EFI (see `tests/fixtures/ans
 The boot log analyser also runs on its own; it exits 1 when no log is found:
 
 ```
-python MacBootsmith.py --analyze-log <log file, folder or drive>
+python OpenCoreWizard.py --analyze-log <log file, folder or drive>
 ```
 
 ## Development
@@ -112,7 +112,7 @@ The CI workflow (`.github/workflows/ci.yml`) has six jobs:
 - test: the unit tests.
 - build: headless EFI build per hardware report fixture (desktop, desktop-debug, laptop), with an ocvalidate check, a DEBUG settings check for desktop-debug and, for the desktop fixture, a docs-only post-install kit check; the EFI is uploaded as an artifact.
 - boot: boots the desktop and desktop-debug EFIs in QEMU, checks that the OpenCore picker appears, and runs the boot log analyser on the serial log.
-- package: builds the Windows app with PyInstaller (`packaging/macbootsmith.spec`), runs a headless desktop build and the window self-test with the packaged app, and uploads it as the MacBootsmith-windows artifact. See `packaging/README.md`.
+- package: builds the Windows app with PyInstaller (`packaging/opencorewizard.spec`), runs a headless desktop build and the window self-test with the packaged app, and uploads it as the OpenCoreWizard-windows artifact. See `packaging/README.md`.
 - recovery-download: downloads and verifies a macOS 26 recovery image.
 - macpatch: runs the MacPatch tests with the macOS runner's system Python and a dry run against a Tahoe manifest (it never patches).
 

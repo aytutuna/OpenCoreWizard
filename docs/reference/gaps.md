@@ -1,6 +1,6 @@
 # Gaps: guide advice the app does not implement or surface
 
-Method: each item was checked by reading the named file under `Scripts/` (or `MacBootsmith.py`) and searching all `*.py` files for the relevant keys (config keys, kext names, tool names). `Scripts/usb_writer.py` is being changed by another agent; it was searched but not studied. Line numbers refer to the tree on 2026-10-21.
+Method: each item was checked by reading the named file under `Scripts/` (or `OpenCoreWizard.py`) and searching all `*.py` files for the relevant keys (config keys, kext names, tool names). `Scripts/usb_writer.py` is being changed by another agent; it was searched but not studied. Line numbers refer to the tree on 2026-10-21.
 
 Ranking is by effect on a first successful boot, then on post-install success. Pipeline stages: hardware scan, verdict, USB map, EFI build, ocvalidate, recovery download, USB write, BIOS checklist, first boot, post-install.
 
@@ -9,7 +9,7 @@ Ranking is by effect on a first successful boot, then on post-install success. P
 ### 1. BIOS checklist is thin and platform-blind
 
 - Guide says: per-family Disable/Enable lists (`bios-settings.md`): Fast Boot, Secure Boot, Serial/Parallel, VT-d/IOMMU, CSM, Thunderbolt, SGX, Platform Trust, CFG Lock; Above 4G, XHCI hand-off, OS type, DVMT (32MB, 64MB or 256MB by family), SATA AHCI. AMD: Above 4G or `npci=0x3000`, IOMMU off.
-- Checked: `MacBootsmith.py` `check_bios_requirements` (lines 343-361) emits only: enable UEFI/disable CSM if the firmware changed from Legacy, Secure Boot not disabled, and Above 4G plus "Disable Resizable BAR/Smart Access Memory" for Intel desktop chipsets `IntelChipsets[112:]`. `compatibility_checker.py` line 336 separately tells users to turn off Intel VMD. Nothing for AMD, laptops, CFG Lock, VT-d, DVMT, SATA mode, XHCI hand-off.
+- Checked: `OpenCoreWizard.py` `check_bios_requirements` (lines 343-361) emits only: enable UEFI/disable CSM if the firmware changed from Legacy, Secure Boot not disabled, and Above 4G plus "Disable Resizable BAR/Smart Access Memory" for Intel desktop chipsets `IntelChipsets[112:]`. `compatibility_checker.py` line 336 separately tells users to turn off Intel VMD. Nothing for AMD, laptops, CFG Lock, VT-d, DVMT, SATA mode, XHCI hand-off.
 - Conflict: the guide keeps Resizable BAR allowed and sets `Booter -> Quirks -> ResizeAppleGpuBars` to 0 (the app already sets 0 or -1 at `config_prodigy.py:636` and `npci=0x2000` for HEDT at 515-516); telling users to switch ReBAR off is stricter than the guide.
 - Pipeline: BIOS checklist.
 - Idea: replace the hard-coded list with `Scripts/datasets/bios_settings.py`, picking the key from codename plus Motherboard platform; show Disable and Enable lists and the family notes; skip options the hardware report already proves correct (Secure Boot, Firmware Type, Resizable BAR).
@@ -24,7 +24,7 @@ Ranking is by effect on a first successful boot, then on post-install success. P
 ### 3. USB mapping advice conflicts with the guide
 
 - Guide says: on macOS 11.3+ `XhciPortLimit` is broken (boot loops); map ports before installing macOS 12+; per-controller limit is 15 (26 ports on Z170+ chipsets); a map is used alone (no `USBInjectAll`, no `SSDT-UIAC`); `XhciUnsupported` only for the listed chipsets.
-- Checked: `MacBootsmith.py:383` ("enable the XhciPortLimit patch" when more than 15 ports) contradicts the 11.3+ rule; `kext_maestro.py:142` always selects `UTBDefault`; `XHCI-unsupported` selection exists (`kext_maestro.py:425`); no USBToolBox port or per-controller count exists yet (roadmap item 4).
+- Checked: `OpenCoreWizard.py:383` ("enable the XhciPortLimit patch" when more than 15 ports) contradicts the 11.3+ rule; `kext_maestro.py:142` always selects `UTBDefault`; `XHCI-unsupported` selection exists (`kext_maestro.py:425`); no USBToolBox port or per-controller count exists yet (roadmap item 4).
 - Pipeline: USB map, EFI build.
 - Idea: when the USBToolBox port lands, produce `UTBMap` before the build, cap each controller to 15 and drop the `XhciPortLimit` instruction; for macOS 12+ make mapping a required step before the recovery USB is written.
 

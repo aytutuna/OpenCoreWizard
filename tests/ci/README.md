@@ -8,7 +8,7 @@ Workflow: `.github/workflows/ci.yml`. Triggers: push, pull request, manual dispa
   `tests/ci/render_choices.py` generates; run `python tests/ci/render_choices.py` (it writes the file) after editing
   `Scripts/datasets/explanations.py`.
 - **build** (windows-latest, needs test): matrix over the two fixtures. Runs
-  `python MacBootsmith.py --headless tests/fixtures/answers-<name>.json`.
+  `python OpenCoreWizard.py --headless tests/fixtures/answers-<name>.json`.
   Exit codes: 0 = built and ocvalidate passed, 2 = built but ocvalidate reported errors or could not run
   (passes with a warning annotation), 3 = hardware incompatible. The laptop fixture is real hardware with no
   GPU macOS supports, so for it exit 3 is accepted (warning); the desktop fixture accepts 0 and 2 only.
@@ -19,9 +19,9 @@ Workflow: `.github/workflows/ci.yml`. Triggers: push, pull request, manual dispa
   That file sets `"express": true`, `"usb_map": false`, a docs-only kit and `"skip_recovery": true` (also the
   default), so CI does not download the recovery image (about 900 MB). Express exits 3 only when nothing can be
   installed and 1 on any other stop.
-- **package** (windows-latest, needs test): builds the windowed exe from `MacBootsmith.py` with
-  `packaging/macbootsmith.spec`, uploads it, then runs it headless and with `--self-test`; output goes to
-  `MacBootsmith.log` because the exe has no console. See `packaging/README.md`.
+- **package** (windows-latest, needs test): builds the windowed exe from `OpenCoreWizard.py` with
+  `packaging/opencorewizard.spec`, uploads it, then runs it headless and with `--self-test`; output goes to
+  `OpenCoreWizard.log` because the exe has no console. See `packaging/README.md`.
 - **boot** (ubuntu-latest, needs build): matrix over fixtures that produce an EFI (currently desktop).
   Downloads the artifact, installs `qemu-system-x86 ovmf mtools dosfstools`, runs `tests/boot/run_qemu.sh`.
 - **recovery-download** (windows-latest, schedule and manual dispatch only, never on pull requests):
@@ -44,7 +44,7 @@ The markers are a first guess. Tighten them after the first green CI run.
 Run locally on Linux:
 
     sudo apt-get install qemu-system-x86 ovmf mtools dosfstools
-    python MacBootsmith.py --headless tests/fixtures/answers-desktop.json   # on any OS, produces Results/EFI
+    python OpenCoreWizard.py --headless tests/fixtures/answers-desktop.json   # on any OS, produces Results/EFI
     bash tests/boot/run_qemu.sh Results/EFI
 
 `SERIAL_LOG` and `BOOT_TIMEOUT` environment variables override the log path and the time limit.

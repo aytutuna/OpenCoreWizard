@@ -25,7 +25,7 @@ PROMPT_CALL = re.compile(r"request_input\(\s*f?([\"'])((?:\\.|(?!\1).)*)\1")
 
 def code_prompts():
     prompts = []
-    for path in glob.glob(os.path.join(REPO_ROOT, "Scripts", "*.py")) + [os.path.join(REPO_ROOT, "MacBootsmith.py")]:
+    for path in glob.glob(os.path.join(REPO_ROOT, "Scripts", "*.py")) + [os.path.join(REPO_ROOT, "OpenCoreWizard.py")]:
         with open(path, "r", encoding="utf-8") as handle:
             prompts += [match.group(2) for match in PROMPT_CALL.finditer(handle.read())]
     return prompts

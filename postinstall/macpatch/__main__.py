@@ -21,7 +21,7 @@ EXIT_NOTHING = 3
 
 
 def parse_args(argv):
-    parser = argparse.ArgumentParser(prog="macpatch", description="Applies the root patches listed in a MacBootsmith patches.json.")
+    parser = argparse.ArgumentParser(prog="macpatch", description="Applies the root patches listed in an OpenCore Wizard patches.json.")
     parser.add_argument("--manifest", help="path to patches.json (not needed with --revert)")
     parser.add_argument("--dry-run", action="store_true", help="run every check and print the plan without changing anything")
     parser.add_argument("--revert", action="store_true", help="go back to the last sealed system snapshot")

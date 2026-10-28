@@ -1,5 +1,5 @@
-# PyInstaller spec for the MacBootsmith Windows build (onedir, windowed).
-# Build from the repository root:  python -m PyInstaller --noconfirm --clean packaging/macbootsmith.spec
+# PyInstaller spec for the OpenCore Wizard Windows build (onedir, windowed).
+# Build from the repository root:  python -m PyInstaller --noconfirm --clean packaging/opencorewizard.spec
 import glob
 import os
 import sys
@@ -16,7 +16,7 @@ def data(relative, target):
 
 
 datas = [
-    data("MacBootsmith.py", "."),
+    data("OpenCoreWizard.py", "."),
     data("Scripts/usb_enum.cs", "Scripts"),
     data("Scripts/sniffer/datasets/pci.ids", "Scripts/sniffer/datasets"),
     data("Scripts/sniffer/datasets/usb.ids", "Scripts/sniffer/datasets"),
@@ -35,7 +35,7 @@ hiddenimports = collect_submodules("Scripts") + ["Scripts.sniffer." + name for n
 )]
 
 a = Analysis(
-    [os.path.join(ROOT, "MacBootsmith.py")],
+    [os.path.join(ROOT, "OpenCoreWizard.py")],
     pathex=[ROOT],
     binaries=[],
     datas=datas,
@@ -53,7 +53,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name="MacBootsmith",
+    name="OpenCoreWizard",
     console=False,
     debug=False,
     strip=False,
@@ -67,5 +67,5 @@ coll = COLLECT(
     a.datas,
     strip=False,
     upx=False,
-    name="MacBootsmith",
+    name="OpenCoreWizard",
 )

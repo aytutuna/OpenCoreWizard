@@ -26,7 +26,7 @@ LILU_GUID = postinstall_kit.LILU_NVRAM_GUID
 
 
 def load_main_module():
-    spec = importlib.util.spec_from_file_location("opcore_simplify_main", os.path.join(REPO_ROOT, "MacBootsmith.py"))
+    spec = importlib.util.spec_from_file_location("opcore_simplify_main", os.path.join(REPO_ROOT, "OpenCoreWizard.py"))
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -754,7 +754,7 @@ class MainIntegrationTest(unittest.TestCase):
         shutil.rmtree(self.temp, ignore_errors=True)
 
     def test_menu_lists_kit_before_usb_installer(self):
-        with open(os.path.join(REPO_ROOT, "MacBootsmith.py"), "r", encoding="utf-8") as source:
+        with open(os.path.join(REPO_ROOT, "OpenCoreWizard.py"), "r", encoding="utf-8") as source:
             text = source.read()
         self.assertIn('print("8. Download macOS Recovery")', text)
         self.assertIn('print("9. Prepare Post-Install Kit")', text)

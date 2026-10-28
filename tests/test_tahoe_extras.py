@@ -231,7 +231,7 @@ class BIOSOverrideTest(unittest.TestCase):
         self.assertEqual([note for note in result["notes"] if "VT-d" in note], ["VT-d note"])
 
     def test_check_bios_requirements_passes_overrides(self):
-        spec = importlib.util.spec_from_file_location("opcore_simplify_main", os.path.join(REPO_ROOT, "MacBootsmith.py"))
+        spec = importlib.util.spec_from_file_location("opcore_simplify_main", os.path.join(REPO_ROOT, "OpenCoreWizard.py"))
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         ocpe = module.OCPE.__new__(module.OCPE)
@@ -356,7 +356,7 @@ class WhateverGreenFirstBootConfigTest(unittest.TestCase):
 
 class OclpDeclinedMessageTest(unittest.TestCase):
     def setUp(self):
-        spec = importlib.util.spec_from_file_location("opcore_simplify_main", os.path.join(REPO_ROOT, "MacBootsmith.py"))
+        spec = importlib.util.spec_from_file_location("opcore_simplify_main", os.path.join(REPO_ROOT, "OpenCoreWizard.py"))
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         self.ocpe = module.OCPE.__new__(module.OCPE)

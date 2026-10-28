@@ -52,7 +52,7 @@ class TkTestCase(unittest.TestCase):
 
     def make_app(self, **kwargs):
         kwargs.setdefault("autostart", False)
-        app = self.app_module.MacBootsmithApp(**kwargs)
+        app = self.app_module.OpenCoreWizardApp(**kwargs)
         app.withdraw()
         self.addCleanup(self.destroy, app)
         return app
@@ -329,7 +329,7 @@ class UsbMapPageTest(TkTestCase):
 
 class SelfTestFlagTest(TkTestCase):
     def test_launcher_self_test_opens_and_closes(self):
-        script = os.path.join(REPO_ROOT, "MacBootsmith.py")
+        script = os.path.join(REPO_ROOT, "OpenCoreWizard.py")
         env = dict(os.environ, PYTHONIOENCODING="utf-8")
         result = subprocess.run([sys.executable, script, "--self-test"], capture_output=True, text=True, encoding="utf-8", env=env, timeout=120)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -342,10 +342,10 @@ class LauncherFilesTest(unittest.TestCase):
             return handle.read()
 
     def test_batch_file_is_well_formed(self):
-        text = self.read("MacBootsmith.bat")
+        text = self.read("OpenCoreWizard.bat")
         lines = text.splitlines()
         self.assertEqual(lines[0].strip().lower(), "@echo off")
-        self.assertIn('set "script=!thisDir!MacBootsmith.py"', text)
+        self.assertIn('set "script=!thisDir!OpenCoreWizard.py"', text)
         self.assertIn('start "" "!pydir!pythonw.exe" "!script!"', text)
         self.assertIn('"!py3path!" "!script!" %*', text)
         self.assertEqual(text.count("("), text.count(")"))
@@ -360,11 +360,11 @@ class LauncherFilesTest(unittest.TestCase):
             self.assertEqual(line.count('"') % 2, 0, line)
 
     def test_old_entry_points_are_gone(self):
-        for name in ("OpCore-Simplify.py", "OpCore-Simplify.bat", "MacBootsmith.pyw", "MacBootsmith-GUI.bat", "updater.py"):
+        for name in ("OpCore-Simplify.py", "OpCore-Simplify.bat", "OpenCoreWizard.pyw", "OpenCoreWizard-GUI.bat", "updater.py"):
             self.assertFalse(os.path.exists(os.path.join(REPO_ROOT, name)), name)
 
     def test_entry_routes_headless_and_never_imports_pyinstaller(self):
-        text = self.read("MacBootsmith.py")
+        text = self.read("OpenCoreWizard.py")
         self.assertIn("--headless", text)
         self.assertIn("--self-test", self.read(os.path.join("Scripts", "gui", "app.py")))
         for root, _, files in os.walk(os.path.join(REPO_ROOT, "Scripts")):
@@ -375,7 +375,7 @@ class LauncherFilesTest(unittest.TestCase):
         self.assertNotIn("PyInstaller", text)
 
     def test_entry_analyzes_a_log(self):
-        script = os.path.join(REPO_ROOT, "MacBootsmith.py")
+        script = os.path.join(REPO_ROOT, "OpenCoreWizard.py")
         sample = os.path.join(FIXTURES, "boot_logs", "ci-serial-sample.txt")
         env = dict(os.environ, PYTHONIOENCODING="utf-8")
         result = subprocess.run([sys.executable, script, "--analyze-log", sample], capture_output=True, text=True, encoding="utf-8", env=env, timeout=120)
@@ -383,18 +383,18 @@ class LauncherFilesTest(unittest.TestCase):
         self.assertIn("Reached the boot picker", result.stdout)
 
     def test_spec_bundles_the_read_only_data(self):
-        text = self.read(os.path.join("packaging", "macbootsmith.spec"))
+        text = self.read(os.path.join("packaging", "opencorewizard.spec"))
         self.assertNotIn("OpCore", text)
         self.assertNotIn("updater", text)
-        self.assertIn('[os.path.join(ROOT, "MacBootsmith.py")]', text)
-        for needle in ('data("MacBootsmith.py", ".")', "usb_enum.cs", "background_picker.icns", "docs", "console=False", 'name="MacBootsmith"', "COLLECT("):
+        self.assertIn('[os.path.join(ROOT, "OpenCoreWizard.py")]', text)
+        for needle in ('data("OpenCoreWizard.py", ".")', "usb_enum.cs", "background_picker.icns", "docs", "console=False", 'name="OpenCoreWizard"', "COLLECT("):
             self.assertIn(needle, text)
 
 
 class EntryPointTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        spec = importlib.util.spec_from_file_location("macbootsmith_entry_test", os.path.join(REPO_ROOT, "MacBootsmith.py"))
+        spec = importlib.util.spec_from_file_location("opencorewizard_entry_test", os.path.join(REPO_ROOT, "OpenCoreWizard.py"))
         cls.module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(cls.module)
 
@@ -415,10 +415,10 @@ class EntryPointTest(unittest.TestCase):
 
     def test_terminal_menu_exits_when_stdin_closes(self):
         env = dict(os.environ, PYTHONIOENCODING="utf-8")
-        result = subprocess.run([sys.executable, os.path.join(REPO_ROOT, "MacBootsmith.py"), "--terminal"], stdin=subprocess.DEVNULL,
+        result = subprocess.run([sys.executable, os.path.join(REPO_ROOT, "OpenCoreWizard.py"), "--terminal"], stdin=subprocess.DEVNULL,
                                 capture_output=True, text=True, encoding="utf-8", env=env, timeout=120)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn(" MacBootsmith ", result.stdout)
+        self.assertIn(" OpenCore Wizard ", result.stdout)
         self.assertIn("Q. Quit", result.stdout)
         self.assertNotIn("OpCore", result.stdout)
 

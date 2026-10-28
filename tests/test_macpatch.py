@@ -328,7 +328,7 @@ class CommandTest(unittest.TestCase):
         self.assertEqual(sysvol.revert_args(MNT), ["/usr/sbin/bless", "--mount", MNT, "--bootefi", "--last-sealed-snapshot"])
 
     def test_hdiutil(self):
-        cache = "/Library/Caches/MacBootsmith"
+        cache = "/Library/Caches/OpenCoreWizard"
         self.assertEqual(payload.attach_args(cache + "/Universal-Binaries.dmg", cache), [
             "/usr/bin/hdiutil", "attach", "-noverify", cache + "/Universal-Binaries.dmg",
             "-mountpoint", os.path.join(cache, "Universal-Binaries"), "-nobrowse",

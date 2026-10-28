@@ -41,7 +41,7 @@ def dortania_builds():
 
 
 def load_main_module():
-    spec = importlib.util.spec_from_file_location("opcore_simplify_main", os.path.join(REPO_ROOT, "MacBootsmith.py"))
+    spec = importlib.util.spec_from_file_location("opcore_simplify_main", os.path.join(REPO_ROOT, "OpenCoreWizard.py"))
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module

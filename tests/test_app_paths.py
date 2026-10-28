@@ -25,7 +25,7 @@ REAL_ROOT = os.path.realpath(REPO_ROOT)
 @contextlib.contextmanager
 def frozen(app_folder, bundle_folder):
     with mock.patch.object(sys, "frozen", True, create=True), \
-            mock.patch.object(sys, "executable", os.path.join(app_folder, "MacBootsmith.exe")), \
+            mock.patch.object(sys, "executable", os.path.join(app_folder, "OpenCoreWizard.exe")), \
             mock.patch.object(sys, "_MEIPASS", bundle_folder, create=True):
         yield
 
@@ -60,7 +60,7 @@ class SourceTreeTest(unittest.TestCase):
 class FrozenTest(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.mkdtemp()
-        self.app_folder = os.path.join(self.temp, "MacBootsmith")
+        self.app_folder = os.path.join(self.temp, "OpenCoreWizard")
         self.bundle_folder = os.path.join(self.app_folder, "_internal")
         os.makedirs(self.bundle_folder)
 

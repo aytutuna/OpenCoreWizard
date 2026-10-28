@@ -13,7 +13,7 @@ import payload
 import runner
 
 MOUNT_LOCATION = "/System/Volumes/Update/mnt1"
-CACHE_DIR = "/Library/Caches/MacBootsmith"
+CACHE_DIR = "/Library/Caches/OpenCoreWizard"
 VERSION = "1"
 
 

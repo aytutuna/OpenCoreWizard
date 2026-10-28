@@ -5,7 +5,7 @@ REM Get our local path before delayed expansion - allows ! in path
 set "thisDir=%~dp0"
 
 setlocal enableDelayedExpansion
-set "script=!thisDir!MacBootsmith.py"
+set "script=!thisDir!OpenCoreWizard.py"
 set /a tried=0
 set "py3v="
 set "py3path="
@@ -39,7 +39,7 @@ if "!syspath!" == "" (
 )
 
 if not exist "!script!" (
-    echo Could not find MacBootsmith.py next to this file.
+    echo Could not find OpenCoreWizard.py next to this file.
     echo.
     echo Press [enter] to quit.
     pause > nul
@@ -73,7 +73,7 @@ if "%~1" == "" (
 set "code=!errorlevel!"
 if not "!code!" == "0" (
     echo.
-    echo MacBootsmith exited with error code: !code!
+    echo OpenCore Wizard exited with error code: !code!
     echo.
     echo Press [enter] to exit...
     pause > nul

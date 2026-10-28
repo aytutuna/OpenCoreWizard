@@ -72,7 +72,7 @@ class Page(ttk.Frame):
 
 class WelcomePage(Page):
     title = "Welcome"
-    heading = "Welcome to MacBootsmith"
+    heading = "Welcome to OpenCore Wizard"
 
     def build(self):
         self.ran = False

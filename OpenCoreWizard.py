@@ -33,7 +33,7 @@ import time
 
 class OCPE:
     def __init__(self):
-        self.u = utils.Utils("MacBootsmith")
+        self.u = utils.Utils("OpenCore Wizard")
         self.u.clean_temporary_dir()
         self.ac = acpi_guru.ACPIGuru()
         self.c = compatibility_checker.CompatibilityChecker()
@@ -1235,7 +1235,7 @@ def redirect_missing_streams():
     if sys.stdout is not None and sys.stderr is not None:
         return
     try:
-        handle = open(os.path.join(app_paths.app_dir(), "MacBootsmith.log"), "w", encoding="utf-8", buffering=1)
+        handle = open(os.path.join(app_paths.app_dir(), "OpenCoreWizard.log"), "w", encoding="utf-8", buffering=1)
     except OSError:
         handle = open(os.devnull, "w", encoding="utf-8")
     if sys.stdout is None:
@@ -1266,14 +1266,14 @@ def main(argv):
     if "--analyze-log" in argv:
         location = option_value(argv, "--analyze-log")
         if not location:
-            print("Usage: python MacBootsmith.py --analyze-log <log file, folder or drive>")
+            print("Usage: python OpenCoreWizard.py --analyze-log <log file, folder or drive>")
             return 1
         return analyze_log(location)
 
     if "--headless" in argv:
         answers = option_value(argv, "--headless")
         if not answers:
-            print("Usage: python MacBootsmith.py --headless <answers.json>")
+            print("Usage: python OpenCoreWizard.py --headless <answers.json>")
             return 1
         return run_headless(answers)
 

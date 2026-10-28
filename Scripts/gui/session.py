@@ -12,8 +12,8 @@ from Scripts.datasets import os_data
 from Scripts.datasets import pci_data
 from Scripts.datasets import recovery_boards
 
-MAIN_MODULE_NAME = "macbootsmith_main"
-MAIN_SCRIPT = "MacBootsmith.py"
+MAIN_MODULE_NAME = "opencorewizard_main"
+MAIN_SCRIPT = "OpenCoreWizard.py"
 VERDICT_SECTIONS = ("CPU", "GPU", "Sound", "Biometric", "Network", "Storage Controllers", "Bluetooth", "SD Controller")
 EXPRESS_TITLE = "Build everything"
 EXPRESS_STEPS = ("Windows preflight", "Hardware scan", "Configuration", "USB map", "EFI build", "macOS recovery", "Post-install kit")

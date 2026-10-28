@@ -583,7 +583,7 @@ class KextSelectionTest(unittest.TestCase):
 class BuildIntegrationTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        spec = importlib.util.spec_from_file_location("opcore_simplify_main_usb", os.path.join(REPO_ROOT, "MacBootsmith.py"))
+        spec = importlib.util.spec_from_file_location("opcore_simplify_main_usb", os.path.join(REPO_ROOT, "OpenCoreWizard.py"))
         cls.main = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(cls.main)
 

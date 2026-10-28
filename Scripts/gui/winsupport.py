@@ -66,7 +66,7 @@ def is_admin():
 def relaunch_arguments():
     if app_paths.is_frozen():
         return sys.executable, []
-    launcher = os.path.join(app_paths.source_root(), "MacBootsmith.py")
+    launcher = os.path.join(app_paths.source_root(), "OpenCoreWizard.py")
     interpreter = sys.executable
     folder, name = os.path.split(interpreter)
     if name.lower() == "python.exe" and os.path.isfile(os.path.join(folder, "pythonw.exe")):

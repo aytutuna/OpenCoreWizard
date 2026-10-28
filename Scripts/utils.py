@@ -110,7 +110,7 @@ class Utils:
     decisions = []
     _stage_keys = ()
 
-    def __init__(self, script_name = "MacBootsmith"):
+    def __init__(self, script_name = "OpenCore Wizard"):
         self.script_name = script_name
 
     @classmethod
@@ -563,7 +563,7 @@ class Utils:
         print(f" ┌{separator}┐ ")
         
         contacts = {
-            "Issues": "https://github.com/aytutuna/MacBootsmith/issues",
+            "Issues": "https://github.com/aytutuna/OpenCoreWizard/issues",
             "Based on": "https://github.com/lzhoang2801/OpCore-Simplify"
         }
         

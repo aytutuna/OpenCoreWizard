@@ -173,5 +173,5 @@ Scripts/ocvalidate
 Scripts/ocvalidate.linux
 Scripts/iasl
 Scripts/iasl-*
-MacBootsmith.log
-!packaging/macbootsmith.spec
+OpenCoreWizard.log
+!packaging/opencorewizard.spec

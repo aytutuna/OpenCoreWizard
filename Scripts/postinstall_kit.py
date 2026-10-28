@@ -476,7 +476,7 @@ class PostInstallKit:
         reason = "This build targets {} on hardware whose drivers macOS no longer ships".format(summary.get("macos_name"))
         if audio and _darwin_tuple(summary.get("macos_version")) >= (25, 0, 0) and not audio.get("simplehda"):
             reason += ", including AppleHDA for analog audio on macOS 26"
-        settings = "The settings in this build (-amfipassbeta, AMFIPass, the Tahoe AirPortBrcmNIC kext) follow the OpenCore Legacy Patcher fork used by MacBootsmith."
+        settings = "The settings in this build (-amfipassbeta, AMFIPass, the Tahoe AirPortBrcmNIC kext) follow the OpenCore Legacy Patcher fork used by OpenCore Wizard."
         risk = "An incompatible root patch can leave a system that does not boot, and the EFI backup does not undo it. Back up the data first and read \"If it does not boot\" before patching."
         if covered:
             unverified = "Unverified: MacPatch (`{}/{}` in this folder) applies OCLP's patch sets with OCLP's own files and Kernel Debug Kit handling, but it has not been run on a real machine yet. {} {}".format(TOOLS_FOLDER, MACPATCH_FOLDER, settings, risk)
@@ -741,7 +741,7 @@ class PostInstallKit:
         header = [
             "# Post-install checklist",
             "",
-            "Made by MacBootsmith on {} for {} ({}).".format(summary.get("created") or "unknown date", summary.get("motherboard") or "Unknown", summary.get("platform") or "Unknown"),
+            "Made by OpenCore Wizard on {} for {} ({}).".format(summary.get("created") or "unknown date", summary.get("motherboard") or "Unknown", summary.get("platform") or "Unknown"),
             "",
             "- macOS: {} (Darwin {})".format(summary.get("macos_name") or "Unknown", summary.get("macos_version") or "unknown"),
             "- SMBIOS: {}".format(summary.get("smbios_model") or "Unknown"),

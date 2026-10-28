@@ -256,7 +256,7 @@ class USBWriter:
         if dry_run:
             print("Dry run: a real run needs administrator rights.")
         elif not self.is_admin():
-            print("\033[91mAdministrator rights are required. Close this window and start MacBootsmith as administrator.\033[0m")
+            print("\033[91mAdministrator rights are required. Close this window and start OpenCore Wizard as administrator.\033[0m")
             return
         if not os.path.isfile(os.path.join(efi_dir, "EFI", "OC", "config.plist")):
             print("\033[91mBuild the OpenCore EFI first.\033[0m")

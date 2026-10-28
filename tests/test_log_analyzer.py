@@ -366,7 +366,7 @@ class LoadTest(unittest.TestCase):
 
 
 def load_main_module():
-    spec = importlib.util.spec_from_file_location("opcore_simplify_main", os.path.join(REPO_ROOT, "MacBootsmith.py"))
+    spec = importlib.util.spec_from_file_location("opcore_simplify_main", os.path.join(REPO_ROOT, "OpenCoreWizard.py"))
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -391,7 +391,7 @@ class FrontEndTest(unittest.TestCase):
         self.assertIn(text, output.getvalue())
 
     def test_menu_lists_analyzer_last(self):
-        with open(os.path.join(REPO_ROOT, "MacBootsmith.py"), "r", encoding="utf-8") as source:
+        with open(os.path.join(REPO_ROOT, "OpenCoreWizard.py"), "r", encoding="utf-8") as source:
             text = source.read()
         self.assertLess(text.index('print("10. Create USB Installer")'), text.index('print("11. Analyze Boot Log")'))
 
@@ -412,7 +412,7 @@ class FrontEndTest(unittest.TestCase):
             self.assertIsNone(ocpe.analyze_boot_log(os.path.join(REPO_ROOT, "no-such-folder")))
 
     def test_cli_exit_codes(self):
-        script = os.path.join(REPO_ROOT, "MacBootsmith.py")
+        script = os.path.join(REPO_ROOT, "OpenCoreWizard.py")
         env = dict(os.environ, PYTHONIOENCODING="utf-8")
         found = subprocess.run([sys.executable, script, "--analyze-log", CI_SAMPLE], capture_output=True, text=True, encoding="utf-8", env=env, timeout=120)
         self.assertEqual(found.returncode, 0, found.stdout + found.stderr)

@@ -18,7 +18,7 @@ from Scripts.gui.session import EXPRESS_TITLE
 from Scripts.gui.session import Session
 from Scripts.gui.session import StageError
 
-APP_TITLE = "MacBootsmith"
+APP_TITLE = "OpenCore Wizard"
 POLL_MS = 50
 STAGE_OUTPUT_LIMIT = 20000
 LOG_LINE_LIMIT = 5000
@@ -139,7 +139,7 @@ class GlossaryWindow(tk.Toplevel):
         self.geometry("+{}+{}".format(app.winfo_rootx() + 80, app.winfo_rooty() + 40))
 
 
-class MacBootsmithApp(tk.Tk):
+class OpenCoreWizardApp(tk.Tk):
     def __init__(self, autostart=True, install_hooks=True):
         super().__init__()
         self.title(APP_TITLE)
@@ -500,7 +500,7 @@ class MacBootsmithApp(tk.Tk):
         widgets.set_text(self.log, "")
 
     def save_log(self):
-        path = filedialog.asksaveasfilename(parent=self, title="Save log", defaultextension=".txt", initialfile="MacBootsmith-log.txt", filetypes=[("Text", "*.txt")])
+        path = filedialog.asksaveasfilename(parent=self, title="Save log", defaultextension=".txt", initialfile="OpenCoreWizard-log.txt", filetypes=[("Text", "*.txt")])
         if not path:
             return
         with open(path, "w", encoding="utf-8") as handle:
@@ -554,7 +554,7 @@ class MacBootsmithApp(tk.Tk):
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
     winsupport.enable_dpi_awareness()
-    app = MacBootsmithApp(autostart="--self-test" not in argv)
+    app = OpenCoreWizardApp(autostart="--self-test" not in argv)
     if "--self-test" in argv:
         visited = app.self_test()
         print("Self-test: visited {} pages: {}".format(len(visited), ", ".join(visited)))

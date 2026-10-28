@@ -69,7 +69,7 @@ jobs:
         run: |
           python - <<'EOF'
           import importlib.util, sys
-          spec = importlib.util.spec_from_file_location("ocs", "MacBootsmith.py")
+          spec = importlib.util.spec_from_file_location("ocs", "OpenCoreWizard.py")
           ocs = importlib.util.module_from_spec(spec)
           spec.loader.exec_module(ocs)
           report_path, acpi_dir, error = ocs.OCPE().export_hardware_report()
@@ -85,7 +85,7 @@ jobs:
           PYTHONIOENCODING: utf-8
         run: |
           set +e
-          python MacBootsmith.py --headless "${{ matrix.answers }}"
+          python OpenCoreWizard.py --headless "${{ matrix.answers }}"
           code=$?
           echo "headless exit code: $code (allowed: ${{ matrix.allowed }})"
           case " ${{ matrix.allowed }} " in
@@ -153,7 +153,7 @@ jobs:
           PYTHONIOENCODING: utf-8
         run: |
           set +e
-          python MacBootsmith.py --headless tests/fixtures/answers-express.json | tee express.txt
+          python OpenCoreWizard.py --headless tests/fixtures/answers-express.json | tee express.txt
           code=${PIPESTATUS[0]}
           echo "express exit code: $code (expected: 0)"
           if [ "$code" != "0" ]; then
@@ -177,21 +177,21 @@ jobs:
       - name: Install PyInstaller
         run: python -m pip install pyinstaller
       - name: Build the Windows app
-        run: python -m PyInstaller --noconfirm --clean packaging/macbootsmith.spec
+        run: python -m PyInstaller --noconfirm --clean packaging/opencorewizard.spec
       - name: Upload the app
         uses: actions/upload-artifact@v4
         with:
-          name: MacBootsmith-windows
-          path: dist/MacBootsmith
+          name: OpenCoreWizard-windows
+          path: dist/OpenCoreWizard
           if-no-files-found: error
       - name: Smoke test (headless desktop build with the packaged app)
         shell: pwsh
         run: |
           # run a copy so the uploaded folder stays free of downloads and results
-          $smoke = Join-Path $env:RUNNER_TEMP "MacBootsmith"
-          Copy-Item -Recurse dist/MacBootsmith $smoke
-          $exe = Join-Path $smoke "MacBootsmith.exe"
-          $log = Join-Path $smoke "MacBootsmith.log"
+          $smoke = Join-Path $env:RUNNER_TEMP "OpenCoreWizard"
+          Copy-Item -Recurse dist/OpenCoreWizard $smoke
+          $exe = Join-Path $smoke "OpenCoreWizard.exe"
+          $log = Join-Path $smoke "OpenCoreWizard.log"
           $p = Start-Process -FilePath $exe -ArgumentList "--headless", "tests/fixtures/answers-desktop.json" -Wait -PassThru
           if (Test-Path $log) { Get-Content $log }
           if ($p.ExitCode -ne 0) { Write-Error "packaged headless build exited with $($p.ExitCode)"; exit 1 }
@@ -200,9 +200,9 @@ jobs:
       - name: Window self-test (packaged app)
         shell: pwsh
         run: |
-          $smoke = Join-Path $env:RUNNER_TEMP "MacBootsmith"
-          $log = Join-Path $smoke "MacBootsmith.log"
-          $p = Start-Process -FilePath (Join-Path $smoke "MacBootsmith.exe") -ArgumentList "--self-test" -Wait -PassThru
+          $smoke = Join-Path $env:RUNNER_TEMP "OpenCoreWizard"
+          $log = Join-Path $smoke "OpenCoreWizard.log"
+          $p = Start-Process -FilePath (Join-Path $smoke "OpenCoreWizard.exe") -ArgumentList "--self-test" -Wait -PassThru
           if (Test-Path $log) { Get-Content $log }
           if ($p.ExitCode -ne 0) { Write-Error "window self-test exited with $($p.ExitCode)"; exit 1 }
       - name: Scan smoke test (headless build from a live scan with the packaged app)
@@ -210,10 +210,10 @@ jobs:
         env:
           PYTHONIOENCODING: utf-8
         run: |
-          $smoke = Join-Path $env:RUNNER_TEMP "MacBootsmith"
-          $log = Join-Path $smoke "MacBootsmith.log"
+          $smoke = Join-Path $env:RUNNER_TEMP "OpenCoreWizard"
+          $log = Join-Path $smoke "OpenCoreWizard.log"
           Remove-Item $log -ErrorAction SilentlyContinue
-          $p = Start-Process -FilePath (Join-Path $smoke "MacBootsmith.exe") -ArgumentList "--headless", "tests/fixtures/answers-sniff.json" -Wait -PassThru
+          $p = Start-Process -FilePath (Join-Path $smoke "OpenCoreWizard.exe") -ArgumentList "--headless", "tests/fixtures/answers-sniff.json" -Wait -PassThru
           $text = if (Test-Path $log) { Get-Content $log -Raw } else { "" }
           $text
           Write-Output "packaged scan build exited with $($p.ExitCode) (allowed: 0 3)"
@@ -315,7 +315,7 @@ jobs:
         if: success() || failure()
         shell: bash
         run: |
-          python MacBootsmith.py --analyze-log serial.log | tee analysis.txt
+          python OpenCoreWizard.py --analyze-log serial.log | tee analysis.txt
           if ! grep -q "^Verdict: *Reached the boot picker" analysis.txt; then
             echo "::error::${{ matrix.fixture }}: the boot log analysis did not report the boot picker"
             exit 1
